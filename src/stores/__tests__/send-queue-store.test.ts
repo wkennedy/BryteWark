@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import {
-  useSendQueueStore, SendTooLargeToQueueError, SendQueueStateError, AlreadyQueuedError, parseQueuedSendRow, type QueuedSend,
+  useSendQueueStore, startSendQueueHydrateRetry, SendTooLargeToQueueError, SendQueueStateError, AlreadyQueuedError, parseQueuedSendRow, type QueuedSend,
 } from '../send-queue-store';
 
 const row = (a: string, id: string) => `webmail:sendqueue:v1:${a}:${id}`;
@@ -666,5 +667,102 @@ describe('send-queue-store', () => {
       await expect(useSendQueueStore.getState().enqueue(entry({ id: 'a:b' }))).rejects.toThrow(/Invalid queued send id/);
       expect(await AsyncStorage.getAllKeys()).toEqual([]);
     });
+  });
+});
+
+describe('send-queue-store: retrying a failed hydrate', () => {
+  // A row from before the attempt mark: hydrate writes it back, so a refused
+  // write rejects the hydrate.
+  const legacy = async (a: string, id = 'q1') => {
+    await AsyncStorage.setItem(row(a, id), JSON.stringify(entry({ id, appAccountId: a })));
+  };
+  const failNextWrite = () => vi.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  const failed = () => useSendQueueStore.getState().hydrateFailed;
+
+  it('records a rejected hydrate as failed, and a later successful one clears it', async () => {
+    await legacy('a1');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    expect(failed()).toEqual({ a1: true });
+    await useSendQueueStore.getState().hydrateAccount('a1');
+    expect(failed()).toEqual({});
+    expect(mem('a1').map((e) => e.id)).toEqual(['q1']);
+  });
+
+  it('retries only the account whose hydrate failed', async () => {
+    await legacy('a1');
+    await legacy('a2', 'q2');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    await useSendQueueStore.getState().retryFailedHydrates();
+    expect(useSendQueueStore.getState().hydrated.a1).toBe(true);
+    expect(mem('a1').map((e) => e.id)).toEqual(['q1']);
+    // a2 was never asked for: its queue stays on disk, not loaded.
+    expect(useSendQueueStore.getState().hydrated.a2).toBeUndefined();
+    expect(mem('a2')).toEqual([]);
+    expect(failed()).toEqual({});
+  });
+
+  it('keeps the account recorded when the retry fails too, and never rejects', async () => {
+    await legacy('a1');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    failNextWrite();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(useSendQueueStore.getState().retryFailedHydrates()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('[send-queue] hydrate retry failed:', expect.any(Error));
+    expect(failed()).toEqual({ a1: true });
+    expect(mem('a1')).toEqual([]);
+  });
+
+  it('runs on the account chain: a sign-out queued first wins and the retry loads nothing', async () => {
+    await legacy('a1');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    const s = useSendQueueStore.getState();
+    const unload = s.unloadAccount('a1');
+    const retry = s.retryFailedHydrates();
+    await Promise.all([unload, retry]);
+    expect(useSendQueueStore.getState().hydrated.a1).toBeUndefined();
+    expect(mem('a1')).toEqual([]);
+    expect(failed()).toEqual({});
+  });
+
+  it('does not hydrate again an account a queued hydrate has loaded meanwhile', async () => {
+    await legacy('a1');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    const s = useSendQueueStore.getState();
+    const first = s.hydrateAccount('a1');
+    const keys = vi.spyOn(AsyncStorage, 'getAllKeys');
+    keys.mockClear();
+    await Promise.all([first, s.retryFailedHydrates()]);
+    expect(keys).toHaveBeenCalledTimes(1);
+    expect(mem('a1').map((e) => e.id)).toEqual(['q1']);
+  });
+
+  it('clearAccount forgets the failure', async () => {
+    await legacy('a1');
+    failNextWrite();
+    await expect(useSendQueueStore.getState().hydrateAccount('a1')).rejects.toThrow('disk full');
+    await useSendQueueStore.getState().clearAccount('a1');
+    expect(failed()).toEqual({});
+  });
+
+  it('retries on the return to the foreground, not on going to the background', async () => {
+    let listener: ((state: string) => void) | undefined;
+    const remove = vi.fn();
+    vi.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, l: (state: string) => void) => {
+      listener = l;
+      return { remove };
+    }) as unknown as typeof AppState.addEventListener);
+    const retry = vi.spyOn(useSendQueueStore.getState(), 'retryFailedHydrates').mockResolvedValue(undefined);
+    const stop = startSendQueueHydrateRetry();
+    listener!('background');
+    expect(retry).not.toHaveBeenCalled();
+    listener!('active');
+    expect(retry).toHaveBeenCalledTimes(1);
+    stop();
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 });

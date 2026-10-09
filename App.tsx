@@ -99,7 +99,7 @@ import { addShareListener, getInitialShare, shareAttachments } from './src/lib/s
 import { OfflineCacheBanner } from './src/components/OfflineCacheBanner';
 import { useOfflineCacheStore } from './src/stores/offline-cache-store';
 import { useOutboxStore } from './src/stores/outbox-store';
-import { useSendQueueStore } from './src/stores/send-queue-store';
+import { useSendQueueStore, startSendQueueHydrateRetry } from './src/stores/send-queue-store';
 import { flushSendQueue, hasNewEntry } from './src/lib/send-queue-replay';
 import { startOutboxToasts } from './src/lib/outbox-toasts';
 import { runOfflineSync } from './src/lib/offline-sync';
@@ -643,6 +643,11 @@ export default function App() {
       void useSendQueueStore.getState().hydrateAccount(a.id).catch(() => undefined);
     }
   }, [isAuthenticated, accountIds]);
+  // A queue that storage refused to load is loaded again on the foreground.
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    return startSendQueueHydrateRetry();
+  }, [isAuthenticated]);
   React.useEffect(() => {
     if (!isAuthenticated) return;
     return startOutboxToasts(() => {
