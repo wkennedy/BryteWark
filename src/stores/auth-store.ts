@@ -1235,9 +1235,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     for (const id of ids) afterCredentials(() => accountStore.removeAccount(id));
     afterCredentials(() => jmapClient.reset());
     clearAllFeatureStores();
-    // Copies of unreadable settings rows: signing out of everything takes
-    // them too (a single sign-out keeps them).
-    await waitAtMost(removeSettingsBackups(), EVICTION_CLEANUP_TIMEOUT_MS, 'removing the settings backups');
     // The shared cleanup's marker first: the loop below can take a bound per
     // account, and an app killed during it must still forget the shared data.
     await waitAtMost(markForgetPending({ key: SHARED_CLEANUP, kind: 'shared' }), FORGET_MARK_TIMEOUT_MS, 'noting the pending cleanup');
@@ -1255,6 +1252,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }));
     }
     await forgetSharedSignedOut();
+    // Copies of unreadable settings rows: signing out of everything takes
+    // them too (a single sign-out keeps them). Last, so a slow removal holds
+    // back none of the cleanups above.
+    await waitAtMost(removeSettingsBackups(), EVICTION_CLEANUP_TIMEOUT_MS, 'removing the settings backups');
 
     set({
       isAuthenticated: false,

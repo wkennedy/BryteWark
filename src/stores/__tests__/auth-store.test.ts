@@ -657,18 +657,52 @@ describe('auth-store', () => {
         removeItem.mockImplementation(realRemoveItem);
       });
 
-      it('logoutAll removes them, after the credentials', async () => {
+      it('logoutAll removes them last, after the credentials and every cleanup', async () => {
         useAccountStore.setState({ accounts: [entry('a@mail.example.com'), entry('b@mail.example.com')] });
-        const credentialsGoneAtRemove: boolean[] = [];
+        const doneAtRemove: { credentials: boolean; accounts: number; shared: boolean }[] = [];
         removeItem.mockImplementation(async (key: string) => {
-          if (BACKUPS.includes(key)) credentialsGoneAtRemove.push(vi.mocked(jmapClient.clearAllCredentials).mock.calls.length > 0);
+          if (BACKUPS.includes(key)) {
+            doneAtRemove.push({
+              credentials: vi.mocked(jmapClient.clearAllCredentials).mock.calls.length > 0,
+              accounts: vi.mocked(forgetAccountData).mock.calls.length,
+              shared: vi.mocked(forgetSharedData).mock.calls.length > 0,
+            });
+          }
           return realRemoveItem(key);
         });
 
         await useAuthStore.getState().logoutAll();
 
-        expect(credentialsGoneAtRemove).toEqual([true, true]);
+        expect(doneAtRemove).toEqual([
+          { credentials: true, accounts: 2, shared: true },
+          { credentials: true, accounts: 2, shared: true },
+        ]);
         expect(await stored()).toEqual([null, null]);
+      });
+
+      it('logoutAll does not stall on a removal that never settles', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+          useAccountStore.setState({ accounts: [entry('a@mail.example.com')] });
+          useAuthStore.setState({ isAuthenticated: true, activeAccountId: 'a@mail.example.com' });
+          removeItem.mockImplementation(async (key: string) => {
+            if (BACKUPS.includes(key)) return new Promise<void>(() => undefined);
+            return realRemoveItem(key);
+          });
+          let finished = false;
+          const out = useAuthStore.getState().logoutAll().then(() => { finished = true; });
+          await vi.advanceTimersByTimeAsync(EVICTION_CLEANUP_TIMEOUT_MS - 1);
+          expect(finished).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+          await out;
+          expect(useAuthStore.getState().isAuthenticated).toBe(false);
+          expect(useAccountStore.getState().accounts).toEqual([]);
+          expect(forgetSharedData).toHaveBeenCalledTimes(1);
+        } finally {
+          warn.mockRestore();
+          vi.useRealTimers();
+        }
       });
 
       it('logoutAll still finishes when removing them fails', async () => {
