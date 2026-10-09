@@ -782,12 +782,13 @@ Left open:
   - the settings guard on a phone (a refused or corrupt settings read, then an edit, a foreground and a restart);
   - `npm run deps:psl-age` before each release (a manual check, not a CI gate; it calls the npm registry).
 - **Settings and storage:**
-  - a corrupt non-readers row (`bulwark:calendar-color-non-readers:v1`) is not moved aside, as the settings row is;
-  - a settings read the device keeps refusing has no cap or prompt across launches;
-  - the settings backup slot keeps only the latest copy and is never removed (a restore or delete item);
-  - a settings hydrate that hangs keeps held edits in memory only, so an app kill loses them.
-- **Push:** `forAccountId` is done, but the setup race inside the push setup is closed only for callers that pass it.
-- **Outbox:** a hydrate write failure (storage refusing writes) holds back one account's Outbox until the next flush or send retries it.
+  - done in Follow-up cleanup 3: a corrupt non-readers row is moved aside (6092329, a030802, 7bb66de);
+  - done in Follow-up cleanup 3: a settings read the device keeps refusing is capped at three launches, then offered a reset (6092329, a030802);
+  - done in Follow-up cleanup 3: the settings backups are removed on reset and on sign-out of every account (6092329, 1d8acc3);
+  - done in Follow-up cleanup 3: a settings hydrate that hangs is bound to 10 s (6092329, a030802, 7bb66de);
+  - a settings hydrate that hangs still keeps held edits in memory only, so an app kill loses them.
+- **Push:** done in Follow-up cleanup 3: `forAccountId` is required on every push resync (5714359).
+- **Outbox:** done in Follow-up cleanup 3: an Outbox that storage refused to load fills again when the app returns to the foreground (af5259b).
 - **Calendar colours:**
   - an account from before the upgrade that signs back in after a failed registry read loses its old colours (fails safe);
   - an import with no account shown skips the colours, and says so.
@@ -798,4 +799,38 @@ Left open:
   - the trusted parent rule accepts sibling ids that exact-id stripping doesn't remove.
 - **Accepted behaviour changes:** all of Follow-up cleanup 1's stay.
 - **Upstream requests:** all of Phase 6e, Phase 7 and Follow-up cleanup 1's still stand. Add: Stalwart stamps its authserv-id on local submissions, or strips its own from them (RFC 8601 section 5).
+- **Still open from before:** shared-account sending, and the 8 blocked parity items.
+
+## Follow-up cleanup 3 (2026-10-10)
+
+Branch `cleanup/follow-ups-3`, everything after b46744e: six fixes (5714359, af5259b, 6092329, 1d8acc3, a030802, 7bb66de). Final review: ready to merge, 0 Critical, 0 Important, 5 Minor.
+
+### What's new for users
+
+- A corrupt calendar-colour non-readers row is copied aside, and the old colours are then retired for every account. The row is removed on a later launch, once the stored settings hold the seed (6092329, a030802, 7bb66de).
+- After three launches in a row where the device refused to read settings, the app offers "Keep trying" or "Reset settings". If the settings read after all, it says so and changes nothing (6092329, a030802).
+- A settings read that hangs is cut off after 10 s, so the start no longer waits for ever. A read that lands late is still kept (6092329, a030802).
+- Resetting settings, and signing out of every account, remove the settings backups. Signing out removes them last, so a slow removal never holds back the other cleanups (6092329, 1d8acc3).
+- A background push refresh always names its account, so it never brings another account's push up to date (5714359).
+- An Outbox that storage refused to load fills again when the app returns to the foreground (af5259b).
+
+**Behaviour changes:**
+- a launch whose settings read is refused or times out is counted (`webmail:settings:v1:refused-launches`); a read that works sets the count back to 0;
+- the start waits at most 10 s for each settings read;
+- the non-readers backup is `bulwark:calendar-color-non-readers:v1:corrupt`.
+
+Left open:
+
+- **Minors from the final review:**
+  - the refused-launch counter's storage calls are not time-bounded, so on storage that hangs the count never advances;
+  - the cold-start settings wait can reach about 30 s (three bounds in a row, when both rows are corrupt and writes hang);
+  - "Reset settings" says nothing when a corrupt row can't be copied aside;
+  - the prompt can show shortly before a slow read lands;
+  - the Outbox retry doesn't check the account registry, so after a sign-out cleanup that timed out, a removed account's rows can show in the Outbox (nothing is sent).
+- **Settings and storage:**
+  - edits held during a hung settings read are lost on an app kill;
+  - the readers-null display-only gap: while the readers stay null in the fall-back paths, an account named in an unreadable row can show the old calendar colours.
+- **Device checks still to run** (all earlier ones stay open too): the unreadable-settings prompt on a phone (three refused launches, then "Keep trying" and "Reset settings").
+- **Sender-check limits that still hold:** all of Follow-up cleanup 2's.
+- **Upstream requests:** all of Follow-up cleanup 2's still stand.
 - **Still open from before:** shared-account sending, and the 8 blocked parity items.

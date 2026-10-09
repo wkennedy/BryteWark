@@ -1,10 +1,24 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup on `cleanup/follow-ups-2`, which is not merged yet and adds 20 commits (18 fixes, a test and a plan). At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 486 of 494 are done and 8 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup on `cleanup/follow-ups-3`, which is not merged yet and adds 6 commits (6 fixes). At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 486 of 494 are done and 8 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Follow-up cleanup 2 (unmerged)
+## Follow-up cleanup 3 (unmerged)
+
+Branch `cleanup/follow-ups-3`, everything after b46744e.
+
+### Improvements
+- After three launches in a row where the device refused to read settings, the app offers to keep trying or to reset them, and says so when they read after all (6092329, a030802).
+- A settings read that hangs is cut off after 10 s, so the start no longer waits for ever (6092329, a030802, 7bb66de).
+- Resetting settings, and signing out of every account, remove the settings backups (6092329, 1d8acc3).
+
+### Fixes
+- A corrupt calendar-colour non-readers row is copied aside and the old colours are retired, and the row is removed later; a late settings read never lets every account read the old colours (6092329, a030802, 7bb66de).
+- A background push refresh always names its account, so it never brings another account's push up to date (5714359).
+- An Outbox that storage refused to load fills again when the app returns to the foreground (af5259b).
+
+## Follow-up cleanup 2 (#18)
 
 Branch `cleanup/follow-ups-2`, everything after c18c785.
 
