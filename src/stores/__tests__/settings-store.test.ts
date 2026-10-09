@@ -5,6 +5,8 @@ vi.mock('../../api/identity', () => ({ getIdentities: vi.fn(async () => []) }));
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useSettingsStore,
+  discardSettingsEditsForTests,
+  importSkipsCalendarColors,
   mergeWithDefaults,
   toExportShape,
   fromExportShape,
@@ -12,6 +14,9 @@ import {
 
 describe('settings-store', () => {
   beforeEach(async () => {
+    // A failed read left by an earlier test would hold every write back.
+    discardSettingsEditsForTests();
+    useSettingsStore.setState({ settingsReadFailed: false, legacyCalendarColorNonReaders: [], legacyCalendarColorNonReadersReadFailed: false });
     await AsyncStorage.clear();
     useSettingsStore.getState().resetToDefaults();
   });
@@ -217,7 +222,17 @@ describe('settings-store', () => {
       expect(exported.sharedCalendarColors).toEqual({ 'team|c1': '#000001', 'team|c3': '#000003' });
       // The stored overrides themselves are untouched.
       expect(Object.keys(useSettingsStore.getState().sharedCalendarColors)).toHaveLength(3);
-      expect(JSON.parse(useSettingsStore.getState().exportSettings()).sharedCalendarColors).toEqual({ 'team|c3': '#000003' });
+      // No account shown: no colour at all (the old keys may be anyone's).
+      expect(JSON.parse(useSettingsStore.getState().exportSettings()).sharedCalendarColors).toEqual({});
+    });
+
+    it('exports the old keys only while the shown account may still read them', () => {
+      const s = useSettingsStore.getState();
+      s.setSharedCalendarColor('a@one.example|team|c1', '#000001');
+      s.setSharedCalendarColor('team|c3', '#000003');
+      s.seedLegacyCalendarColorReaders(['b@two.example']);
+      expect(JSON.parse(s.exportSettings('a@one.example')).sharedCalendarColors).toEqual({ 'team|c1': '#000001' });
+      expect(JSON.parse(s.exportSettings('b@two.example')).sharedCalendarColors).toEqual({ 'team|c3': '#000003' });
     });
 
     it('round-trips through exportSettings', () => {
@@ -271,11 +286,232 @@ describe('settings-store', () => {
       expect(useSettingsStore.getState().importSettings('not json')).toBe(false);
     });
 
+    it('imports a file\'s colours for the shown account only, keeping other accounts\' colours', () => {
+      const s = useSettingsStore.getState();
+      s.setSharedCalendarColor('B|team|c1', '#222222');
+      s.importSettings(JSON.stringify({ sharedCalendarColors: { 'team|c1': '#00ff00' } }), 'A');
+      expect(useSettingsStore.getState().sharedCalendarColors).toEqual({ 'B|team|c1': '#222222', 'A|team|c1': '#00ff00' });
+    });
+
+    it('stores no colour from a file when no account is shown, and never an old key', () => {
+      const s = useSettingsStore.getState();
+      s.setSharedCalendarColor('B|team|c1', '#222222');
+      expect(s.importSettings(JSON.stringify({ sharedCalendarColors: { 'team|c1': '#00ff00' }, fontSize: 'large' }))).toBe(true);
+      expect(useSettingsStore.getState().sharedCalendarColors).toEqual({ 'B|team|c1': '#222222' });
+      expect(useSettingsStore.getState().fontSize).toBe('large');
+      // A file with no colours, or a malformed map, leaves them alone.
+      s.importSettings(JSON.stringify({ sharedCalendarColors: 'x' }), 'A');
+      s.importSettings(JSON.stringify({ sharedCalendarColors: { 'team|c2': 7 } }), 'A');
+      expect(useSettingsStore.getState().sharedCalendarColors).toEqual({ 'B|team|c1': '#222222' });
+    });
+
+    it('imports only colour values', () => {
+      const s = useSettingsStore.getState();
+      s.importSettings(JSON.stringify({ sharedCalendarColors: {
+        'team|c1': '#00ff00', 'team|c2': '#ABC', 'team|c3': 'red', 'team|c4': '#12', 'team|c5': 'url(x)', 'team|c6': '#00ff00 ',
+      } }), 'A');
+      expect(useSettingsStore.getState().sharedCalendarColors).toEqual({ 'A|team|c1': '#00ff00', 'A|team|c2': '#ABC' });
+    });
+
+    it('tells when an import skips the colours for want of a shown account', () => {
+      const file = JSON.stringify({ sharedCalendarColors: { 'team|c1': '#00ff00' }, fontSize: 'large' });
+      expect(importSkipsCalendarColors(file, null)).toBe(true);
+      expect(importSkipsCalendarColors(file, '')).toBe(true);
+      expect(importSkipsCalendarColors(file, 'A')).toBe(false);
+      // Nothing it could have imported: nothing skipped.
+      expect(importSkipsCalendarColors(JSON.stringify({ fontSize: 'large' }), null)).toBe(false);
+      expect(importSkipsCalendarColors(JSON.stringify({ sharedCalendarColors: { c1: 'red' } }), null)).toBe(false);
+      expect(importSkipsCalendarColors('not json', null)).toBe(false);
+    });
+
+    it('never exports or imports the legacy readers list', () => {
+      const s = useSettingsStore.getState();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A']);
+      expect(JSON.parse(s.exportSettings('A'))).not.toHaveProperty('legacyCalendarColorReaders');
+      s.importSettings(JSON.stringify({ legacyCalendarColorReaders: ['A', 'C'] }), 'A');
+      expect(useSettingsStore.getState().legacyCalendarColorReaders).toEqual(['A']);
+    });
+
     it('fromExportShape maps webmail names back', () => {
       expect(fromExportShape({ expandedFilterView: true, filenameLowercase: true })).toEqual({
         filtersExpandedView: true,
         exportLowercase: true,
       });
+    });
+  });
+
+  // The old colour key names no app account, so it may only be read by the
+  // accounts registered at the upgrade, each until its first full load.
+  describe('legacy shared calendar colours', () => {
+    const get = () => useSettingsStore.getState();
+    const KEY = 'webmail:settings:v1';
+
+    it('lets only the accounts registered at the upgrade read legacy colours, then drops them', () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A', 'B']);
+      s.seedLegacyCalendarColorReaders(['A', 'B', 'C']); // seeded once
+      expect(get().legacyCalendarColorReaders).toEqual(['A', 'B']);
+      s.finishLegacyCalendarColors('A', { 'A|team|c1': '#00ff00' });
+      expect(get().sharedCalendarColors['team|c1']).toBe('#00ff00'); // B has not claimed yet
+      expect(get().legacyCalendarColorReaders).toEqual(['B']);
+      s.finishLegacyCalendarColors('B', {});
+      expect(get().sharedCalendarColors).toEqual({ 'A|team|c1': '#00ff00' });
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+    });
+
+    it('seeds nobody when there is no legacy colour', () => {
+      const s = get();
+      s.setSharedCalendarColor('A|team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A', 'B']);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      // An account registered later is never seeded.
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A', 'B', 'C']);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+    });
+
+    it('drops the legacy colours at once when no account is registered at the upgrade', () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.setSharedCalendarColor('A|team|c1', '#111111');
+      s.seedLegacyCalendarColorReaders([]);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      expect(get().sharedCalendarColors).toEqual({ 'A|team|c1': '#111111' });
+    });
+
+    it('persists the readers and the claim in one write', () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A']);
+      const spy = vi.spyOn(AsyncStorage, 'setItem');
+      const before = spy.mock.calls.length;
+      s.finishLegacyCalendarColors('A', { 'A|team|c1': '#00ff00' });
+      const writes = spy.mock.calls.slice(before).filter(([k]) => k === 'webmail:settings:v1');
+      expect(writes).toHaveLength(1);
+      const stored = JSON.parse(writes[0][1] as string);
+      expect(stored.legacyCalendarColorReaders).toEqual([]);
+      expect(stored.sharedCalendarColors).toEqual({ 'A|team|c1': '#00ff00' });
+      // And they come back on the next start.
+      expect(mergeWithDefaults(stored).legacyCalendarColorReaders).toEqual([]);
+    });
+
+    it('a finish for an account that is no reader changes nothing', () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A']);
+      s.finishLegacyCalendarColors('C', { 'C|team|c1': '#00ff00' });
+      expect(get().sharedCalendarColors).toEqual({ 'team|c1': '#00ff00' });
+      expect(get().legacyCalendarColorReaders).toEqual(['A']);
+    });
+
+    it('a claim never replaces a colour the account set since', () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.seedLegacyCalendarColorReaders(['A']);
+      // Picked from the sidebar after the claim was worked out.
+      s.setSharedCalendarColor('A|team|c1', '#111111');
+      s.finishLegacyCalendarColors('A', { 'A|team|c1': '#00ff00', 'A|team|c2': '#222222' });
+      expect(get().sharedCalendarColors).toEqual({ 'A|team|c1': '#111111', 'A|team|c2': '#222222' });
+    });
+
+    it('forgetting an account takes it off the readers list', async () => {
+      // The settings are in memory already (forget reads them first otherwise).
+      useSettingsStore.setState({ hydrated: true });
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      s.setSharedCalendarColor('A|team|c2', '#111111');
+      s.seedLegacyCalendarColorReaders(['A', 'B']);
+      await s.forgetAccountCalendarColors('A');
+      expect(get().legacyCalendarColorReaders).toEqual(['B']);
+      expect(get().sharedCalendarColors).toEqual({ 'team|c1': '#00ff00' });
+      await get().forgetAccountCalendarColors('B');
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      expect(get().sharedCalendarColors).toEqual({});
+    });
+
+    // A refused read leaves the defaults in memory: a write then would put
+    // them over every stored setting.
+    it('seeds nothing, and writes nothing, after a refused read', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const stored = JSON.stringify({ sharedCalendarColors: { 'team|c1': '#00ff00' } });
+      await AsyncStorage.setItem(KEY, stored);
+      vi.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('CursorWindow'));
+      useSettingsStore.setState({ hydrated: false });
+      await get().hydrate();
+      expect(get().settingsReadFailed).toBe(true);
+      useSettingsStore.setState({ sharedCalendarColors: { 'team|c1': '#00ff00' } });
+      get().seedLegacyCalendarColorReaders(['A']);
+      expect(get().legacyCalendarColorReaders).toBeNull();
+      expect(await AsyncStorage.getItem(KEY)).toBe(stored);
+      warn.mockRestore();
+    });
+
+    // A row that can never be read is kept aside: the seed then works from
+    // the defaults, which hold no old colour to read.
+    it.each([['corrupt JSON', '{corrupt'], ['a row that is not an object', '7']])(
+      'seeds nobody after %s, the row kept aside', async (_, stored) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        await AsyncStorage.setItem(KEY, stored);
+        useSettingsStore.setState({ hydrated: false });
+        await get().hydrate();
+        expect(get().settingsReadFailed).toBe(false);
+        get().seedLegacyCalendarColorReaders(['A']);
+        expect(get().legacyCalendarColorReaders).toEqual([]);
+        expect(await AsyncStorage.getItem(`${KEY}:corrupt`)).toBe(stored);
+        warn.mockRestore();
+      },
+    );
+
+    it('a clean read, or none at all, lets the seed run', async () => {
+      useSettingsStore.setState({ hydrated: false });
+      await get().hydrate();
+      expect(get().settingsReadFailed).toBe(false);
+      await AsyncStorage.setItem(KEY, JSON.stringify({ sharedCalendarColors: { 'team|c1': '#00ff00' } }));
+      useSettingsStore.setState({ hydrated: false });
+      await get().hydrate();
+      expect(get().settingsReadFailed).toBe(false);
+      get().seedLegacyCalendarColorReaders(['A']);
+      expect(get().legacyCalendarColorReaders).toEqual(['A']);
+    });
+
+    it('leaves out of the seed the accounts signed in while it was unseeded, kept in their own row', async () => {
+      const s = get();
+      s.setSharedCalendarColor('team|c1', '#00ff00');
+      await s.noteSignedInWhileColorReadersUnseeded('C');
+      expect(JSON.parse((await AsyncStorage.getItem('bulwark:calendar-color-non-readers:v1'))!)).toEqual(['C']);
+      useSettingsStore.setState({ hydrated: false, legacyCalendarColorNonReaders: [] });
+      await get().hydrate();
+      expect(get().legacyCalendarColorNonReaders).toEqual(['C']);
+      get().seedLegacyCalendarColorReaders(['A', 'C']);
+      expect(get().legacyCalendarColorReaders).toEqual(['A']);
+      // Once seeded, a sign-in is not noted (it is no reader anyway).
+      await get().noteSignedInWhileColorReadersUnseeded('D');
+      expect(get().legacyCalendarColorNonReaders).toEqual(['C']);
+      useSettingsStore.setState({ legacyCalendarColorNonReaders: [] });
+    });
+
+    it('seeds nothing, and leaves the row alone, when that row could not be read', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await AsyncStorage.setItem('bulwark:calendar-color-non-readers:v1', '{corrupt');
+      useSettingsStore.setState({ hydrated: false, legacyCalendarColorNonReaders: [] });
+      await get().hydrate();
+      expect(get().legacyCalendarColorNonReadersReadFailed).toBe(true);
+      get().setSharedCalendarColor('team|c1', '#00ff00');
+      await get().noteSignedInWhileColorReadersUnseeded('C');
+      expect(get().legacyCalendarColorNonReaders).toEqual(['C']);
+      get().seedLegacyCalendarColorReaders(['A', 'C']);
+      expect(get().legacyCalendarColorReaders).toBeNull();
+      expect(await AsyncStorage.getItem('bulwark:calendar-color-non-readers:v1')).toBe('{corrupt');
+      useSettingsStore.setState({ legacyCalendarColorNonReaders: [], legacyCalendarColorNonReadersReadFailed: false });
+      warn.mockRestore();
+    });
+
+    it('rejects a malformed stored readers list', () => {
+      expect(mergeWithDefaults({ legacyCalendarColorReaders: 'A' } as never).legacyCalendarColorReaders).toBeNull();
+      expect(mergeWithDefaults({ legacyCalendarColorReaders: [1] } as never).legacyCalendarColorReaders).toBeNull();
+      expect(mergeWithDefaults({ legacyCalendarColorReaders: ['A'] }).legacyCalendarColorReaders).toEqual(['A']);
     });
   });
 
@@ -296,13 +532,15 @@ describe('settings-store', () => {
     it('reads storage once for concurrent calls and does not revert a later change', async () => {
       await AsyncStorage.setItem('webmail:settings:v1', JSON.stringify({ density: 'compact' }));
       const spy = vi.spyOn(AsyncStorage, 'getItem');
+      // The mock is shared: count only this case's reads.
+      const before = spy.mock.calls.length;
       useSettingsStore.setState({ hydrated: false });
       const first = useSettingsStore.getState().hydrate();
       const second = useSettingsStore.getState().hydrate();
       await first;
       useSettingsStore.getState().setDensity('extra-compact');
       await second;
-      const reads = spy.mock.calls.filter(([k]) => k === 'webmail:settings:v1').length;
+      const reads = spy.mock.calls.slice(before).filter(([k]) => k === 'webmail:settings:v1').length;
       spy.mockRestore();
       expect(reads).toBe(1);
       expect(useSettingsStore.getState().density).toBe('extra-compact');

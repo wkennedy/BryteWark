@@ -107,6 +107,11 @@ export interface QueuedSend {
   heldReason?: HeldReason;
   /** When replay last looked for proof of an `uncertain` entry (backoff). */
   lastReconcileAt?: string;
+  /**
+   * Stamped by enqueue. A row without it may have been sent once and put back by Retry, which leaves no
+   * trace, so hydrate marks it `everAttempted`: never re-stamped, while releaseHold still sends a never-tried one.
+   */
+  schema?: 2;
 }
 
 export class SendTooLargeToQueueError extends Error {
@@ -281,11 +286,17 @@ export const useSendQueueStore = create<SendQueueState>((set, get) => {
           const parsed = parseQueuedSendRow(appAccountId, key, raw);
           if (!parsed || inMemory.has(parsed.id)) continue; // corrupt rows stay on disk untouched
           let entry = parsed;
-          if (entry.state === 'sending') {
-            entry = { ...entry, state: 'uncertain' };
-            // A failed write-back rejects the hydrate with memory untouched.
-            await AsyncStorage.setItem(key, JSON.stringify(entry));
-          }
+          if (entry.state === 'sending') entry = { ...entry, state: 'uncertain' };
+          // Any stamp at all is from enqueue (a later version's too, which
+          // must not be taken back to 2).
+          if (typeof (entry.schema as unknown) !== 'number') entry = { ...entry, everAttempted: true, schema: 2 };
+          // One write per repaired row; a failed write-back rejects the
+          // hydrate with memory untouched. That holds the account's queue
+          // back (no replay; the composer's already-queued check refuses
+          // with OutboxCheckError) only while storage refuses writes, when
+          // no send could be queued or marked anyway: hydrated stays unset,
+          // so the next flush or send tries the hydrate again.
+          if (entry !== parsed) await AsyncStorage.setItem(key, JSON.stringify(entry));
           loaded.push(entry);
         }
         loaded.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -301,7 +312,7 @@ export const useSendQueueStore = create<SendQueueState>((set, get) => {
       if (typeof raw !== 'string' || !stripMessageIdBrackets(raw)) {
         return Promise.reject(new Error('A queued send needs a Message-ID'));
       }
-      const entry: QueuedSend = { ...input, messageId: stripMessageIdBrackets(raw) };
+      const entry: QueuedSend = { ...input, messageId: stripMessageIdBrackets(raw), schema: 2 };
       if (utf8Length(JSON.stringify(entry)) > MAX_ENTRY_BYTES) {
         return Promise.reject(new SendTooLargeToQueueError());
       }

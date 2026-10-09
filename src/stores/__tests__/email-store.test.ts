@@ -511,6 +511,93 @@ describe('email-store', () => {
       expect(state.currentMailboxId).toBe(shown);
       expect(state.emails.map((e) => e.id)).not.toContain('stale');
     });
+
+    // mb-1 is shown with [e1]; mb-2 has no snapshot, so its cache read is awaited.
+    const holdCacheRead = () => {
+      let release: () => void = () => undefined;
+      offlineSeed.read = () => new Promise((resolve) => { release = () => resolve([{ id: 'cached-2' }]); });
+      useEmailStore.setState({
+        currentMailboxId: 'mb-1', emails: [{ id: 'e1' } as any], totalEmails: 1, queryState: 'q-1',
+        mailboxSnapshots: {}, searchQuery: '', filters: {},
+      });
+      return () => release();
+    };
+
+    it('tucks the folder as it is when the cache read ends, and keeps snapshots written meanwhile', async () => {
+      mockQueryEmails.mockResolvedValue({ ids: [], total: 0, queryState: 'q' });
+      const releaseCacheRead = holdCacheRead();
+      const snap3 = { emails: [{ id: 'e3' } as any], total: 1, queryState: 'q-3' };
+      const pick = useEmailStore.getState().selectMailbox('mb-2');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // A push lands in mb-1 and another folder is tucked while the cache is read.
+      useEmailStore.setState((s) => ({
+        emails: [{ id: 'e1' } as any, { id: 'e2' } as any], totalEmails: 2, queryState: 'q-1b',
+        mailboxSnapshots: { ...s.mailboxSnapshots, 'mb-3': snap3 },
+      }));
+      releaseCacheRead();
+      await pick;
+
+      const snaps = useEmailStore.getState().mailboxSnapshots;
+      expect(snaps['mb-1'].emails.map((e) => e.id)).toEqual(['e1', 'e2']);
+      expect(snaps['mb-1']).toMatchObject({ total: 2, queryState: 'q-1b' });
+      expect(snaps['mb-3']).toEqual(snap3);
+    });
+
+    it('tucks nothing when a search started while the cache was read', async () => {
+      mockQueryEmails.mockResolvedValue({ ids: [], total: 0, queryState: 'q' });
+      const releaseCacheRead = holdCacheRead();
+      const pick = useEmailStore.getState().selectMailbox('mb-2');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      useEmailStore.setState({ searchQuery: 'invoice', emails: [{ id: 'hit-1' } as any], totalEmails: 1 });
+      releaseCacheRead();
+      await pick;
+
+      expect(useEmailStore.getState().mailboxSnapshots['mb-1']).toBeUndefined();
+    });
+
+    // The pick decided to browse before the read; the search typed during it
+    // is re-run in the new folder, so the folder's browse seed never shows
+    // under it.
+    it('keeps a search typed while the cache was read, with its results, until it re-runs', async () => {
+      mockQueryEmails.mockResolvedValue({ ids: [], total: 0, queryState: 'q' });
+      const releaseCacheRead = holdCacheRead();
+      const pick = useEmailStore.getState().selectMailbox('mb-2');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      useEmailStore.setState({ searchQuery: 'invoice', emails: [{ id: 'hit-1' } as any], totalEmails: 1 });
+      const seen: string[][] = [];
+      const unsubscribe = useEmailStore.subscribe((st, prev) => {
+        if (st.currentMailboxId === 'mb-2' && prev.currentMailboxId !== 'mb-2') seen.push(st.emails.map((e) => e.id));
+      });
+      releaseCacheRead();
+      await pick;
+      unsubscribe();
+
+      expect(seen).toEqual([['hit-1']]);
+      expect(useEmailStore.getState().searchQuery).toBe('invoice');
+    });
+
+    it('clears a search typed while the cache was read when folder changes clear the search', async () => {
+      useSettingsStore.getState().updateSetting('clearSearchOnFolderChange', true);
+      try {
+        mockQueryEmails.mockResolvedValue({ ids: [], total: 0, queryState: 'q' });
+        const releaseCacheRead = holdCacheRead();
+        const pick = useEmailStore.getState().selectMailbox('mb-2');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        useEmailStore.setState({ searchQuery: 'invoice', emails: [{ id: 'hit-1' } as any], totalEmails: 1 });
+        const seen: string[][] = [];
+        const unsubscribe = useEmailStore.subscribe((st, prev) => {
+          if (st.currentMailboxId === 'mb-2' && prev.currentMailboxId !== 'mb-2') seen.push(st.emails.map((e) => e.id));
+        });
+        releaseCacheRead();
+        await pick;
+        unsubscribe();
+
+        expect(seen).toEqual([['cached-2']]);
+        expect(useEmailStore.getState().searchQuery).toBe('');
+      } finally {
+        useSettingsStore.getState().updateSetting('clearSearchOnFolderChange', false);
+      }
+    });
   });
 
   describe('loadMoreEmails', () => {

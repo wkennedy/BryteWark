@@ -1325,29 +1325,14 @@ export const useEmailStore = create<EmailState>()(
     if (startAccountId) startFolderSettled.add(startAccountId);
     const overtaken = () => gen !== selectGen || get().activeAccountId !== startAccountId;
     const state = get();
-    // Tuck the previously-visible mailbox into its snapshot so a return-trip
-    // can restore it without a network call. Only do this for the base view —
-    // a filter or search makes the visible list unrepresentative of the
-    // cached "no-filter" snapshot.
-    let mailboxSnapshots = state.mailboxSnapshots;
     const baseView = isBaseView(state.searchQuery, state.filters);
-    if (state.currentMailboxId && state.currentMailboxId !== mailboxId && baseView) {
-      mailboxSnapshots = {
-        ...mailboxSnapshots,
-        [state.currentMailboxId]: {
-          emails: state.emails,
-          total: state.totalEmails,
-          queryState: state.queryState,
-        },
-      };
-    }
 
     // "Clear search when switching folders": drop the query and filters and
     // browse the folder, instead of re-running the search there.
     const clearSearch = !baseView && useSettingsStore.getState().clearSearchOnFolderChange;
     const browse = baseView || clearSearch;
 
-    const incoming = mailboxSnapshots[mailboxId];
+    const incoming = state.mailboxSnapshots[mailboxId];
     // Swap to the new mailbox's cached view immediately. If there's no
     // snapshot, fall through to the offline cache as a second-best seed;
     // if that's also empty we render the empty-state, not a spinner over
@@ -1356,7 +1341,7 @@ export const useEmailStore = create<EmailState>()(
     // folder (#553), so the current results stay on screen until it lands.
     let seededEmails: Email[] = browse ? incoming?.emails ?? [] : state.emails;
     let seededTotal = browse ? incoming?.total ?? 0 : state.totalEmails;
-    const seededQueryState = browse ? incoming?.queryState : undefined;
+    let seededQueryState = browse ? incoming?.queryState : undefined;
 
     if (browse && seededEmails.length === 0) {
       const cacheStore = useOfflineCacheStore.getState();
@@ -1382,8 +1367,37 @@ export const useEmailStore = create<EmailState>()(
       if (overtaken()) return false;
     }
 
+    // Tuck the folder shown now into its snapshot so a return-trip can
+    // restore it without a network call. Read after the cache await, so a
+    // push or a snapshot written meanwhile is kept. Only for the base view:
+    // a filter or search makes the visible list unrepresentative of the
+    // cached "no-filter" snapshot.
+    const now = get();
+    // Browse or keep the search as the view is now: a search typed during
+    // the cache read is re-run in the new folder (or cleared, with "Clear
+    // search when switching folders"), so the folder's browse seed must not
+    // show under it. Only the browse path awaited, so only it can change.
+    const nowBase = isBaseView(now.searchQuery, now.filters);
+    const clearNow = clearSearch || (!nowBase && useSettingsStore.getState().clearSearchOnFolderChange);
+    if (browse && !nowBase && !clearNow) {
+      seededEmails = now.emails;
+      seededTotal = now.totalEmails;
+      seededQueryState = undefined;
+    }
+    let mailboxSnapshots = now.mailboxSnapshots;
+    if (now.currentMailboxId && now.currentMailboxId !== mailboxId && nowBase) {
+      mailboxSnapshots = {
+        ...mailboxSnapshots,
+        [now.currentMailboxId]: {
+          emails: now.emails,
+          total: now.totalEmails,
+          queryState: now.queryState,
+        },
+      };
+    }
+
     set({
-      ...(clearSearch ? { searchQuery: '', filters: {}, searchSnippets: {} } : {}),
+      ...(clearNow ? { searchQuery: '', filters: {}, searchSnippets: {} } : {}),
       currentMailboxId: mailboxId,
       emails: seededEmails,
       totalEmails: seededTotal,

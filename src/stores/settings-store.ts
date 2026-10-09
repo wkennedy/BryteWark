@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import type { Identity } from '../api/types';
 import { getIdentities as fetchIdentities } from '../api/identity';
 import { jmapClient } from '../api/jmap-client';
@@ -8,7 +9,14 @@ import { writeIdentityCache } from '../lib/identity-cache';
 import type { SortLevel, MessageListOrderScope } from '../lib/message-list-order';
 import { isValidHourPair, isValidWorkingDays } from '../lib/calendar-display-range';
 import { sanitizeSidebarAppUrl } from '../lib/sidebar-app-url';
-import { exportableCalendarColors, withoutAccountCalendarColors } from '../lib/calendar-color-keys';
+import {
+  exportableCalendarColors,
+  importedCalendarColors,
+  isLegacyCalendarColorKey,
+  readsLegacyCalendarColors,
+  withoutAccountCalendarColors,
+  withoutLegacyCalendarColors,
+} from '../lib/calendar-color-keys';
 
 export type ExternalContentPolicy = 'allow' | 'block' | 'ask';
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -122,6 +130,14 @@ export const ALL_DEBUG_CATEGORIES: DebugCategory[] = [
 ];
 
 const STORAGE_KEY = 'webmail:settings:v1';
+// Where a stored settings row that can never be read (corrupt JSON, not an
+// object) is moved before the defaults are written over it. One slot: a
+// later one replaces it.
+export const CORRUPT_SETTINGS_KEY = 'webmail:settings:v1:corrupt';
+// The app accounts signed in while the old-colour readers were unseeded
+// (legacyCalendarColorNonReaders). A row of its own, not in the settings:
+// a sign-in after a failed settings read must still be recorded.
+const LEGACY_COLOR_NON_READERS_KEY = 'bulwark:calendar-color-non-readers:v1';
 
 export interface SidebarApp {
   id: string;
@@ -281,6 +297,12 @@ interface PersistedSettings {
   // sharedCalendarColorKey(). Lets the user recolor calendars shared with
   // them without changing the owner's color (parity with webmail #345).
   sharedCalendarColors: Record<string, string>;
+  // The app accounts that may still read the old, account-less colour keys
+  // (legacySharedCalendarColorKey): those registered at the upgrade, each
+  // until its first full calendar load claims them. Null until seeded
+  // (seedLegacyCalendarColorReaders). Device-local: it names this device's
+  // accounts.
+  legacyCalendarColorReaders: string[] | null;
 
   // Files
   filesFolderLayout: FilesFolderLayout;
@@ -462,6 +484,7 @@ const DEFAULT_PERSISTED: PersistedSettings = {
   enableCalendarTasks: false,
   showTasksOnCalendar: true,
   sharedCalendarColors: {},
+  legacyCalendarColorReaders: null,
 
   filesFolderLayout: 'inline',
   filesDefaultViewMode: 'list',
@@ -518,6 +541,19 @@ export interface SettingsState extends PersistedSettings {
   loading: boolean;
   error: string | null;
   hydrated: boolean;
+  // The stored settings were there but could not be read (a failed read,
+  // corrupt JSON, not an object): the defaults stand in for them, so nothing
+  // is written until a read succeeds (see editSettings). No stored settings
+  // at all is a clean read.
+  settingsReadFailed: boolean;
+  // App accounts signed in while legacyCalendarColorReaders was still null
+  // (the seed skipped at a start whose registry or settings failed to read):
+  // they are new, so never readers, though a later seed finds them
+  // registered. Device-local, in its own row.
+  legacyCalendarColorNonReaders: string[];
+  // That row was there but could not be read: the seed waits for a start
+  // that reads it, and the row is not written over.
+  legacyCalendarColorNonReadersReadFailed: boolean;
 
   /** Read the identities; concurrent calls share one request. */
   fetchIdentities: () => Promise<void>;
@@ -533,6 +569,8 @@ export interface SettingsState extends PersistedSettings {
    */
   refreshIdentities: () => Promise<void>;
   hydrate: () => Promise<void>;
+  /** After a failed read: read the stored settings again, and on success apply the edits made meanwhile and write. */
+  retryReadSettings: () => Promise<void>;
 
   // Generic setter — preferred for new code.
   updateSetting: <K extends keyof PersistedSettings>(
@@ -566,8 +604,14 @@ export interface SettingsState extends PersistedSettings {
   // Shared-calendar color overrides
   setSharedCalendarColor: (key: string, color: string) => void;
   removeSharedCalendarColor: (key: string) => void;
-  /** Drop a signed-out app account's shared calendar colours (old keys stay). */
+  /** Drop a signed-out app account's shared calendar colours and its right to the old keys (which go with the last reader). */
   forgetAccountCalendarColors: (appAccountId: string) => Promise<void>;
+  /** Once only: the accounts registered now may read the old colour keys (none if there are none). */
+  seedLegacyCalendarColorReaders: (appAccountIds: readonly string[]) => void;
+  /** Store an account's claimed old colours and stop it reading the old keys. */
+  finishLegacyCalendarColors: (appAccountId: string, claimed: Record<string, string>) => void;
+  /** A sign-in registered a new app account: while the readers are unseeded, it never becomes one. */
+  noteSignedInWhileColorReadersUnseeded: (appAccountId: string) => Promise<void>;
 
   // Sidebar apps
   addSidebarApp: (app: Omit<SidebarApp, 'id'>) => void;
@@ -583,7 +627,9 @@ export interface SettingsState extends PersistedSettings {
   exportSettings: (appAccountId?: string | null) => string;
   // Returns false when the JSON is not a settings object. Unknown keys and
   // invalid values are ignored; device-local keys are never imported.
-  importSettings: (json: string) => boolean;
+  // Shared calendar colours in the file go to app account `appAccountId`
+  // only (importedCalendarColors), none without one.
+  importSettings: (json: string, appAccountId?: string | null) => boolean;
 
   reset: () => void;
 }
@@ -601,6 +647,8 @@ function snapshot(state: SettingsState): PersistedSettings {
 }
 
 function persist(state: PersistedSettings): void {
+  // Backstop for editSettings: never the defaults over settings not read.
+  if (useSettingsStore.getState().settingsReadFailed) return;
   void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)).catch((err) => {
     console.warn('[settings-store] persist failed', err);
   });
@@ -636,6 +684,7 @@ const VALIDATORS: Partial<Record<keyof PersistedSettings, (v: unknown) => boolea
   autoSaveDraftInterval: intBetween(1000, 3600000),
   // RFC 5321 atext specials minus alphanumerics and "@" (lib/sub-addressing).
   subAddressDelimiter: (v) => typeof v === 'string' && /^[!#$%&'*+\-./=?^_`{|}~]$/.test(v),
+  legacyCalendarColorReaders: stringArray,
   preferredIdentityIds: (v) => !!v && typeof v === 'object' && !Array.isArray(v)
     && Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string'),
   markAsReadDelay: (v) => typeof v === 'number' && Number.isFinite(v) && v >= -1,
@@ -673,6 +722,49 @@ const VALIDATORS: Partial<Record<keyof PersistedSettings, (v: unknown) => boolea
     && typeof (a as SidebarApp).url === 'string'),
 };
 
+// The string-valued entries of a settings file's shared calendar colours.
+// A colour a calendar can be painted with (what the colour pickers write).
+const CALENDAR_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function importableCalendarColors(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  return Object.fromEntries(
+    Object.entries(v).filter(([, c]) => typeof c === 'string' && CALENDAR_COLOR.test(c)),
+  ) as Record<string, string>;
+}
+
+/**
+ * Whether importing `json` would leave out shared calendar colours it holds
+ * because no account is shown (they are stored as the shown account's), so
+ * the import can say so.
+ */
+export function importSkipsCalendarColors(json: string, appAccountId: string | null): boolean {
+  if (appAccountId) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const colors = importableCalendarColors(fromExportShape(parsed as Record<string, unknown>).sharedCalendarColors);
+  return Object.keys(colors).some((key) => key.split('|').length === 2);
+}
+
+// `appAccountId` taken off the old colour key readers, over `overrides`;
+// the old keys go with the last reader.
+function withoutLegacyReader(
+  overrides: Record<string, string>,
+  readers: readonly string[],
+  appAccountId: string,
+): Pick<PersistedSettings, 'sharedCalendarColors' | 'legacyCalendarColorReaders'> {
+  const left = readers.filter((id) => id !== appAccountId);
+  return {
+    legacyCalendarColorReaders: left,
+    sharedCalendarColors: left.length ? overrides : withoutLegacyCalendarColors(overrides),
+  };
+}
+
 function importableSidebarApps(apps: readonly unknown[]): SidebarApp[] {
   const out: SidebarApp[] = [];
   for (const a of apps) {
@@ -697,6 +789,9 @@ export function mergeWithDefaults(parsed: Partial<PersistedSettings>): Persisted
     if (validator && !validator(v)) continue;
     if (k === 'bottomQuickActions') {
       out[k] = normalizeBottomQuickActions(v);
+    } else if (k === 'legacyCalendarColorReaders') {
+      // Its default (null) has no shape to match; the validator checked it.
+      out[k] = v;
     } else if (Array.isArray(def)) {
       if (Array.isArray(v)) out[k] = v;
     } else if (typeof def === 'object') {
@@ -755,6 +850,7 @@ export const DEVICE_LOCAL_KEYS: ReadonlySet<keyof PersistedSettings> = new Set<k
   'calendarDefaultView',
   'blockScreenshots',
   'hideInRecents',
+  'legacyCalendarColorReaders',
 ]);
 
 export function toExportShape(state: PersistedSettings): Record<string, unknown> {
@@ -805,6 +901,133 @@ function identityCacheAccount(): string | null {
 }
 
 let hydrateInFlight: Promise<void> | null = null;
+
+type NonReadersRead = { ok: true; ids: string[] } | { ok: false };
+
+async function readLegacyColorNonReaders(): Promise<NonReadersRead> {
+  try {
+    const raw = await AsyncStorage.getItem(LEGACY_COLOR_NON_READERS_KEY);
+    if (!raw) return { ok: true, ids: [] };
+    const parsed: unknown = JSON.parse(raw);
+    if (!stringArray(parsed)) throw new Error('stored non-readers are not a list of ids');
+    return { ok: true, ids: parsed as string[] };
+  } catch (err) {
+    console.warn('[settings-store] calendar colour non-readers read failed', err);
+    return { ok: false };
+  }
+}
+
+// `corrupt` is the row when it was read but is not settings (it never will
+// be); null when the read itself was refused (it may work later).
+type ReadResult = { ok: true; settings: PersistedSettings | null } | { ok: false; corrupt: string | null };
+
+// The stored settings, merged over the defaults; null when there are none.
+async function readStoredSettings(): Promise<ReadResult> {
+  let raw: string | null;
+  try {
+    raw = await AsyncStorage.getItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn('[settings-store] hydrate failed', err);
+    return { ok: false, corrupt: null };
+  }
+  if (!raw) return { ok: true, settings: null };
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('stored settings are not an object');
+    return { ok: true, settings: mergeWithDefaults(parsed as Partial<PersistedSettings>) };
+  } catch (err) {
+    console.warn('[settings-store] hydrate failed', err);
+    return { ok: false, corrupt: raw };
+  }
+}
+
+// A row that can never be read would hold every write back for good, so it
+// is kept aside (CORRUPT_SETTINGS_KEY, as it was) and the app goes on from
+// the defaults. Only once that copy is written: until then, blocked as for
+// a refused read, and the next try copies it again.
+async function settleRead(read: ReadResult): Promise<ReadResult> {
+  if (read.ok || read.corrupt === null) return read;
+  try {
+    await AsyncStorage.setItem(CORRUPT_SETTINGS_KEY, read.corrupt);
+  } catch (err) {
+    console.warn('[settings-store] could not keep the unreadable settings aside', err);
+    return read;
+  }
+  console.warn(`[settings-store] unreadable settings kept at ${CORRUPT_SETTINGS_KEY}; starting from the defaults`);
+  return { ok: true, settings: null };
+}
+
+// After a read: the stored settings (the defaults when there are none, or
+// once an unreadable row was kept aside), with the edits held meanwhile run
+// again on them in order and written. An edit is a change to the state, not
+// the value it produced over the defaults, so a trusted sender added
+// meanwhile joins the stored list instead of replacing it.
+function applyRead(read: ReadResult, written: boolean): void {
+  const store = useSettingsStore;
+  if (!read.ok) {
+    store.setState({ hydrated: true, settingsReadFailed: true });
+    retryOnForeground();
+    return;
+  }
+  const edits = editsWhileUnread;
+  editsWhileUnread = [];
+  let next: SettingsState = { ...store.getState(), ...(read.settings ?? DEFAULT_PERSISTED) };
+  for (const change of edits) {
+    const patch = change(next);
+    if (patch) next = { ...next, ...patch };
+  }
+  store.setState({ ...snapshot(next), hydrated: true, settingsReadFailed: false });
+  if (edits.length || written) persist(snapshot(store.getState()));
+}
+
+// A change to the settings, worked out from the state it is given (null for
+// none). Kept while the stored settings could not be read, to run again on
+// them once they read.
+type SettingsEdit = (state: SettingsState) => Partial<PersistedSettings> | null;
+let editsWhileUnread: SettingsEdit[] = [];
+
+/** Test-only: forget the edits held since a failed read. */
+export function discardSettingsEditsForTests(): void {
+  editsWhileUnread = [];
+}
+
+// Every settings write goes through here. Before the stored settings are
+// read, or after a read that failed, the defaults stand in for them, and
+// writing those would replace every stored setting (the auto-assigned
+// calendar colours, a trusted sender added by the Outbox replay, any edit).
+// So nothing is written then: the edit shows at once, is kept, and the read
+// is started (or tried again). When it works, the kept edits run again on
+// the stored settings and are written (applyRead). Re-running them is safe
+// because each is worked out from the state it is given; keeping them only
+// in memory means an app killed first loses them, which is still better than
+// losing everything stored.
+function editSettings(change: SettingsEdit): void {
+  const store = useSettingsStore;
+  const patch = change(store.getState());
+  if (patch) store.setState(patch);
+  const { hydrated, settingsReadFailed } = store.getState();
+  if (hydrated && !settingsReadFailed) {
+    if (patch) persist(snapshot(store.getState()));
+    return;
+  }
+  // Kept even when it changes nothing over the defaults: on the stored
+  // settings it may (a forgotten account's colours).
+  if (settingsReadFailed && editsWhileUnread.length === 0) {
+    console.warn('[settings-store] settings could not be read; changes are kept until they can');
+  }
+  editsWhileUnread.push(change);
+  void (settingsReadFailed ? store.getState().retryReadSettings() : store.getState().hydrate());
+}
+
+let retriesOnForeground = false;
+function retryOnForeground(): void {
+  if (retriesOnForeground) return;
+  retriesOnForeground = true;
+  AppState.addEventListener('change', (next) => {
+    if (next === 'active') void useSettingsStore.getState().retryReadSettings();
+  });
+}
+
 let identitiesInFlight: { scope: string | null; promise: Promise<void> } | null = null;
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -814,6 +1037,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loading: false,
   error: null,
   hydrated: false,
+  settingsReadFailed: false,
+  legacyCalendarColorNonReaders: [],
+  legacyCalendarColorNonReadersReadFailed: false,
 
   fetchIdentities: () => {
     const scope = identityScope();
@@ -873,57 +1099,64 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // changed a setting would put the stored value back.
     if (hydrateInFlight) return hydrateInFlight;
     const promise = (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
-          set({ ...mergeWithDefaults(parsed), hydrated: true });
-          return;
-        }
-      } catch (err) {
-        console.warn('[settings-store] hydrate failed', err);
-      }
-      set({ hydrated: true });
+      const [read, nonReaders] = await Promise.all([readStoredSettings(), readLegacyColorNonReaders()]);
+      // Ids noted before this read (a sign-in racing the start) are kept.
+      set({
+        legacyCalendarColorNonReaders: nonReaders.ok
+          ? [...new Set([...nonReaders.ids, ...get().legacyCalendarColorNonReaders])]
+          : get().legacyCalendarColorNonReaders,
+        legacyCalendarColorNonReadersReadFailed: !nonReaders.ok,
+      });
+      const settled = await settleRead(read);
+      applyRead(settled, settled !== read);
     })().finally(() => { hydrateInFlight = null; });
     hydrateInFlight = promise;
     return promise;
   },
 
-  updateSetting: (key, value) => {
-    set({ [key]: value } as Partial<SettingsState>);
-    persist(snapshot(get()));
+  retryReadSettings: () => {
+    if (!get().settingsReadFailed) return Promise.resolve();
+    if (hydrateInFlight) return hydrateInFlight;
+    const promise = (async () => {
+      const read = await readStoredSettings();
+      if (!get().settingsReadFailed) return;
+      const settled = await settleRead(read);
+      // Still refused: stays blocked, the edits kept, for the next try.
+      if (!settled.ok) return;
+      applyRead(settled, settled !== read);
+    })().finally(() => { hydrateInFlight = null; });
+    hydrateInFlight = promise;
+    return promise;
   },
 
-  setExternalContentPolicy: (policy) => { set({ externalContentPolicy: policy }); persist(snapshot(get())); },
-  setSenderFavicons: (enabled) => { set({ senderFavicons: enabled }); persist(snapshot(get())); },
-  setGroupContactsByLetter: (enabled) => { set({ groupContactsByLetter: enabled }); persist(snapshot(get())); },
-  setTheme: (theme) => { set({ theme }); persist(snapshot(get())); },
-  setFontSize: (fontSize) => { set({ fontSize }); persist(snapshot(get())); },
-  setDensity: (density) => { set({ density }); persist(snapshot(get())); },
-  setShowToolbarLabels: (enabled) => { set({ showToolbarLabels: enabled }); persist(snapshot(get())); },
-  setAnimationsEnabled: (enabled) => { set({ animationsEnabled: enabled }); persist(snapshot(get())); },
-  setEmailAlwaysLightMode: (enabled) => { set({ emailAlwaysLightMode: enabled }); persist(snapshot(get())); },
-  setAutoSelectReplyIdentity: (enabled) => { set({ autoSelectReplyIdentity: enabled }); persist(snapshot(get())); },
-  setAttachmentReminderEnabled: (enabled) => { set({ attachmentReminderEnabled: enabled }); persist(snapshot(get())); },
-  setAttachmentReminderKeywords: (keywords) => { set({ attachmentReminderKeywords: keywords }); persist(snapshot(get())); },
-  setSwipeLeftAction: (action) => { set({ swipeLeftAction: action }); persist(snapshot(get())); },
-  setSwipeRightAction: (action) => { set({ swipeRightAction: action }); persist(snapshot(get())); },
-  setSwipeMode: (mode) => { set({ swipeMode: mode }); persist(snapshot(get())); },
-  setArchiveMode: (mode) => { set({ archiveMode: mode }); persist(snapshot(get())); },
+  updateSetting: (key, value) => editSettings(() => ({ [key]: value } as Partial<PersistedSettings>)),
+
+  setExternalContentPolicy: (policy) => editSettings(() => ({ externalContentPolicy: policy })),
+  setSenderFavicons: (enabled) => editSettings(() => ({ senderFavicons: enabled })),
+  setGroupContactsByLetter: (enabled) => editSettings(() => ({ groupContactsByLetter: enabled })),
+  setTheme: (theme) => editSettings(() => ({ theme })),
+  setFontSize: (fontSize) => editSettings(() => ({ fontSize })),
+  setDensity: (density) => editSettings(() => ({ density })),
+  setShowToolbarLabels: (enabled) => editSettings(() => ({ showToolbarLabels: enabled })),
+  setAnimationsEnabled: (enabled) => editSettings(() => ({ animationsEnabled: enabled })),
+  setEmailAlwaysLightMode: (enabled) => editSettings(() => ({ emailAlwaysLightMode: enabled })),
+  setAutoSelectReplyIdentity: (enabled) => editSettings(() => ({ autoSelectReplyIdentity: enabled })),
+  setAttachmentReminderEnabled: (enabled) => editSettings(() => ({ attachmentReminderEnabled: enabled })),
+  setAttachmentReminderKeywords: (keywords) => editSettings(() => ({ attachmentReminderKeywords: keywords })),
+  setSwipeLeftAction: (action) => editSettings(() => ({ swipeLeftAction: action })),
+  setSwipeRightAction: (action) => editSettings(() => ({ swipeRightAction: action })),
+  setSwipeMode: (mode) => editSettings(() => ({ swipeMode: mode })),
+  setArchiveMode: (mode) => editSettings(() => ({ archiveMode: mode })),
 
   addTrustedSender: (email) => {
     const normalized = stripDisplayName(email);
     if (!normalized) return;
-    const current = get().trustedSenders;
-    if (current.includes(normalized)) return;
-    set({ trustedSenders: [...current, normalized] });
-    persist(snapshot(get()));
+    editSettings((s) => (s.trustedSenders.includes(normalized) ? null : { trustedSenders: [...s.trustedSenders, normalized] }));
   },
 
   removeTrustedSender: (email) => {
     const normalized = stripDisplayName(email);
-    set({ trustedSenders: get().trustedSenders.filter((e) => e !== normalized) });
-    persist(snapshot(get()));
+    editSettings((s) => ({ trustedSenders: s.trustedSenders.filter((e) => e !== normalized) }));
   },
 
   isSenderTrusted: (email) => {
@@ -931,64 +1164,104 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return get().trustedSenders.includes(normalized);
   },
 
-  setSharedCalendarColor: (key, color) => {
-    set({ sharedCalendarColors: { ...get().sharedCalendarColors, [key]: color } });
-    persist(snapshot(get()));
-  },
+  setSharedCalendarColor: (key, color) => editSettings((s) => ({ sharedCalendarColors: { ...s.sharedCalendarColors, [key]: color } })),
 
-  removeSharedCalendarColor: (key) => {
-    const { [key]: _removed, ...rest } = get().sharedCalendarColors;
-    set({ sharedCalendarColors: rest });
-    persist(snapshot(get()));
-  },
+  removeSharedCalendarColor: (key) => editSettings((s) => {
+    const { [key]: _removed, ...rest } = s.sharedCalendarColors;
+    return { sharedCalendarColors: rest };
+  }),
 
   forgetAccountCalendarColors: async (appAccountId) => {
     // Read the stored settings first: a write before that would put the
     // defaults over every other setting.
     await get().hydrate();
-    const current = get().sharedCalendarColors;
-    const kept = withoutAccountCalendarColors(current, appAccountId);
-    if (kept === current) return;
-    set({ sharedCalendarColors: kept });
-    persist(snapshot(get()));
+    // After a failed read this runs again on the stored row once it reads
+    // (editSettings), so the account's colours still go.
+    editSettings((s) => {
+      const current = s.sharedCalendarColors;
+      const readers = s.legacyCalendarColorReaders;
+      const wasReader = !!appAccountId && !!readers?.includes(appAccountId);
+      const kept = withoutAccountCalendarColors(current, appAccountId);
+      if (kept === current && !wasReader) return null;
+      return wasReader ? withoutLegacyReader(kept, readers!, appAccountId) : { sharedCalendarColors: kept };
+    });
+  },
+
+  seedLegacyCalendarColorReaders: (appAccountIds) => {
+    if (get().legacyCalendarColorReaders !== null) return;
+    // The stored settings could not be read: seeding would write the
+    // defaults over them. Left for a launch that reads them.
+    if (get().settingsReadFailed) return;
+    // Nor without the accounts signed in while unseeded: they would be
+    // taken for accounts registered at the upgrade.
+    if (get().legacyCalendarColorNonReadersReadFailed) return;
+    const nonReaders = get().legacyCalendarColorNonReaders;
+    const overrides = get().sharedCalendarColors;
+    const anyLegacy = Object.keys(overrides).some(isLegacyCalendarColorKey);
+    const readers = anyLegacy ? appAccountIds.filter((id) => !!id && !nonReaders.includes(id)) : [];
+    // No account registered to claim them: they go now.
+    editSettings(() => ({
+      legacyCalendarColorReaders: readers,
+      sharedCalendarColors: readers.length ? overrides : withoutLegacyCalendarColors(overrides),
+    }));
+  },
+
+  finishLegacyCalendarColors: (appAccountId, claimed) => {
+    const readers = get().legacyCalendarColorReaders;
+    // Not a reader (finished already, or registered later): it may claim nothing.
+    // Never after a failed read either: the claim was made from the
+    // defaults, so run again on the stored row it would drop the reader
+    // with nothing claimed. (The readers are null then, so this is moot.)
+    if (!appAccountId || !readers?.includes(appAccountId) || get().settingsReadFailed) return;
+    // A key the live map already has was set since the claim was worked
+    // out (a sidebar pick): it stays.
+    editSettings((s) => withoutLegacyReader({ ...claimed, ...s.sharedCalendarColors }, readers, appAccountId));
+  },
+
+  noteSignedInWhileColorReadersUnseeded: async (appAccountId) => {
+    // Its own row is read with the settings; never written before that.
+    await get().hydrate();
+    const { legacyCalendarColorReaders, legacyCalendarColorNonReaders: held } = get();
+    // Once seeded, an account added later is not a reader anyway.
+    if (!appAccountId || legacyCalendarColorReaders !== null || held.includes(appAccountId)) return;
+    const ids = [...held, appAccountId];
+    set({ legacyCalendarColorNonReaders: ids });
+    // Never over a row that could not be read (it would lose the ids there);
+    // the seed waits while it can't be read, so this session is still safe.
+    if (get().legacyCalendarColorNonReadersReadFailed) return;
+    // Kept for good: a later seed must still leave these out.
+    await AsyncStorage.setItem(LEGACY_COLOR_NON_READERS_KEY, JSON.stringify(ids)).catch((err) => {
+      console.warn('[settings-store] calendar colour non-readers write failed', err);
+    });
   },
 
   addSidebarApp: (app) => {
     const id = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    set({ sidebarApps: [...get().sidebarApps, { ...app, id }] });
-    persist(snapshot(get()));
+    editSettings((s) => ({ sidebarApps: [...s.sidebarApps, { ...app, id }] }));
   },
 
-  updateSidebarApp: (id, updates) => {
-    set({
-      sidebarApps: get().sidebarApps.map((a) => (a.id === id ? { ...a, ...updates } : a)),
-    });
-    persist(snapshot(get()));
-  },
+  updateSidebarApp: (id, updates) => editSettings((s) => ({
+    sidebarApps: s.sidebarApps.map((a) => (a.id === id ? { ...a, ...updates } : a)),
+  })),
 
-  removeSidebarApp: (id) => {
-    set({ sidebarApps: get().sidebarApps.filter((a) => a.id !== id) });
-    persist(snapshot(get()));
-  },
+  removeSidebarApp: (id) => editSettings((s) => ({ sidebarApps: s.sidebarApps.filter((a) => a.id !== id) })),
 
-  reorderSidebarApps: (apps) => {
-    set({ sidebarApps: apps });
-    persist(snapshot(get()));
-  },
+  reorderSidebarApps: (apps) => editSettings(() => ({ sidebarApps: apps })),
 
-  resetToDefaults: () => {
-    set({ ...DEFAULT_PERSISTED });
-    persist(snapshot(get()));
-  },
+  resetToDefaults: () => editSettings(() => ({ ...DEFAULT_PERSISTED })),
 
-  // Only that app account's shared calendar colours (exportableCalendarColors).
+  // Only that app account's shared calendar colours, and the old keys while
+  // it may still read them (exportableCalendarColors).
   exportSettings: (appAccountId = null) => {
     const state = snapshot(get());
-    const sharedCalendarColors = exportableCalendarColors(state.sharedCalendarColors, appAccountId);
+    const sharedCalendarColors = exportableCalendarColors(
+      state.sharedCalendarColors, appAccountId,
+      readsLegacyCalendarColors(state.legacyCalendarColorReaders, appAccountId ?? '', get().legacyCalendarColorNonReaders),
+    );
     return JSON.stringify(toExportShape({ ...state, sharedCalendarColors }), null, 2);
   },
 
-  importSettings: (json) => {
+  importSettings: (json, appAccountId = null) => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(json);
@@ -1002,11 +1275,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // imports. Hydrate does not filter, so an app saved before the check
     // stays editable.
     if (Array.isArray(incoming.sidebarApps)) incoming.sidebarApps = importableSidebarApps(incoming.sidebarApps);
+    // The file's colours name no app account: they become the shown
+    // account's, and never replace another account's (importedCalendarColors).
+    const fileColors = importableCalendarColors(incoming.sharedCalendarColors);
+    delete incoming.sharedCalendarColors;
     // Validate against the current state so keys absent from the file keep
     // their value instead of snapping back to the default.
-    const merged = mergeWithDefaults({ ...snapshot(get()), ...incoming });
-    set({ ...merged });
-    persist(snapshot(get()));
+    editSettings((s) => {
+      const merged = mergeWithDefaults({ ...snapshot(s), ...incoming });
+      merged.sharedCalendarColors = importedCalendarColors(merged.sharedCalendarColors, fileColors, appAccountId);
+      return merged;
+    });
     return true;
   },
 
