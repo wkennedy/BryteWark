@@ -40,6 +40,7 @@ let modes: Record<string, Mode> = {};
 let hung: { key: string; resolve: (v: string | null) => void }[] = [];
 // Keys whose writes never settle.
 let hangingWrites: Set<string> = new Set();
+let heldWrites: { key: string; done: () => void }[] = [];
 
 function startLaunch(): void {
   useSettingsStore.setState({
@@ -63,8 +64,9 @@ describe('settings storage guards', () => {
     modes = {};
     hung = [];
     hangingWrites = new Set();
+    heldWrites = [];
     vi.mocked(AsyncStorage.setItem).mockImplementation(async (key: string, value: string) => {
-      if (hangingWrites.has(key)) return new Promise<void>(() => undefined);
+      if (hangingWrites.has(key)) return new Promise<void>((resolve) => { heldWrites.push({ key, done: () => { void realSetItem(key, value).then(resolve); } }); });
       return realSetItem(key, value);
     });
     vi.mocked(AsyncStorage.getItem).mockImplementation(async (key: string) => {
@@ -279,7 +281,7 @@ describe('settings storage guards', () => {
       get().addTrustedSender('bob@example.com');
       await flush();
       expect(await realGetItem(KEY)).toBe(STORED);
-      await get().forceResetUnreadableSettings();
+      expect(await get().forceResetUnreadableSettings()).toBe('reset');
       await flush();
       expect(get().settingsReadFailed).toBe(false);
       expect(get().theme).toBe('system');
@@ -297,7 +299,7 @@ describe('settings storage guards', () => {
       modes[KEY] = 'refuse';
       await launch();
       delete modes[KEY];
-      await get().forceResetUnreadableSettings();
+      expect(await get().forceResetUnreadableSettings()).toBe('read');
       await flush();
       expect(get().settingsReadFailed).toBe(false);
       expect(get().theme).toBe('dark');
@@ -310,7 +312,7 @@ describe('settings storage guards', () => {
       await launch();
       delete modes[KEY];
       await AsyncStorage.setItem(KEY, '{corrupt');
-      await get().forceResetUnreadableSettings();
+      expect(await get().forceResetUnreadableSettings()).toBe('reset');
       await flush();
       expect(await realGetItem(CORRUPT_SETTINGS_KEY)).toBe('{corrupt');
       expect(get().settingsReadFailed).toBe(false);
@@ -319,7 +321,7 @@ describe('settings storage guards', () => {
     it('does nothing after a read that worked', async () => {
       await AsyncStorage.setItem(KEY, STORED);
       await launch();
-      await get().forceResetUnreadableSettings();
+      expect(await get().forceResetUnreadableSettings()).toBe('kept');
       await flush();
       expect(get().theme).toBe('dark');
       expect(await realGetItem(KEY)).toBe(STORED);
@@ -428,7 +430,38 @@ describe('settings storage guards', () => {
       // Hydrate's own (timed-out) result does not undo it.
       expect(get().settingsReadFailed).toBe(false);
       expect(get().theme).toBe('dark');
-      expect(await realGetItem(REFUSED)).not.toBe('1');
+      expect(['0', null]).toContain(await realGetItem(REFUSED));
+    });
+
+    it('lands while the non-readers copy is out: no seed until the retire seeds []', async () => {
+      await AsyncStorage.setItem(KEY, STORED);
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      modes[KEY] = 'hang';
+      hangingWrites.add(NON_READERS_CORRUPT);
+      vi.useFakeTimers();
+      startLaunch();
+      const done = get().hydrate();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      hung[0].resolve(STORED);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(get().hydrated).toBe(true);
+      expect(get().settingsReadFailed).toBe(false);
+      // What restoreSession does once the settings read: 'C' may be an
+      // account the lost row named.
+      get().seedLegacyCalendarColorReaders(['A', 'C']);
+      expect(get().legacyCalendarColorReaders).toBeNull();
+      // The copy lands; the retire seeds nobody.
+      heldWrites[0].done();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      await done;
+      expect(await realGetItem(NON_READERS_CORRUPT)).toBe('{corrupt');
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      get().seedLegacyCalendarColorReaders(['A', 'C']);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      expect(readsLegacyCalendarColors(get().legacyCalendarColorReaders, 'C', get().legacyCalendarColorNonReaders)).toBe(false);
+      expect(JSON.parse((await realGetItem(KEY))!).legacyCalendarColorReaders).toEqual([]);
     });
 
     it('lands after a forced reset: kept aside, never applied', async () => {
@@ -442,7 +475,7 @@ describe('settings storage guards', () => {
       // The reset's own last read hangs too.
       const reset = get().forceResetUnreadableSettings();
       await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
-      await reset;
+      expect(await reset).toBe('reset');
       expect(get().settingsReadFailed).toBe(false);
       expect(get().theme).toBe('system');
       hung[0].resolve(STORED);

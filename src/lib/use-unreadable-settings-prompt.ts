@@ -13,13 +13,17 @@ let promptedThisLaunch = false;
  */
 export async function answerUnreadablePrompt(choice: 'keep' | 'reset'): Promise<void> {
   const settings = useSettingsStore.getState();
-  if (!settings.settingsReadFailed) {
+  const readAfterAll = () => {
     const t = useLocaleStore.getState().t;
     toast.info(t('settings.unreadable_read_after_all', 'Your settings were read after all'));
+  };
+  if (!settings.settingsReadFailed) {
+    readAfterAll();
     return;
   }
   if (choice === 'keep') await settings.retryReadSettings();
-  else await settings.forceResetUnreadableSettings();
+  // Reset reads once more first; settings that read then are kept.
+  else if (await settings.forceResetUnreadableSettings() === 'read') readAfterAll();
 }
 
 /**

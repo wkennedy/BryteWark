@@ -591,7 +591,8 @@ export interface SettingsState extends PersistedSettings {
    * (settings that read, or a corrupt row kept aside, win), else the
    * defaults with the edits held meanwhile, written over the row.
    */
-  forceResetUnreadableSettings: () => Promise<void>;
+  /** 'read' when the last try read them after all, 'reset' when reset, 'kept' when still blocked or not failed. */
+  forceResetUnreadableSettings: () => Promise<'read' | 'reset' | 'kept'>;
 
   // Generic setter — preferred for new code.
   updateSetting: <K extends keyof PersistedSettings>(
@@ -1139,8 +1140,12 @@ export async function removeSettingsBackups(): Promise<void> {
 // again on them in order and written. An edit is a change to the state, not
 // the value it produced over the defaults, so a trusted sender added
 // meanwhile joins the stored list instead of replacing it.
+// The last read applied was a corrupt row kept aside (the defaults stand in).
+let lastAppliedKeptAside = false;
+
 function applyRead(read: ReadResult, written: boolean): void {
   const store = useSettingsStore;
+  if (read.ok) lastAppliedKeptAside = written && read.settings === null;
   if (!read.ok) {
     store.setState({ hydrated: true, settingsReadFailed: true, settingsReadRefused: read.corrupt === null });
     retryOnForeground();
@@ -1290,19 +1295,27 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // read, or the copy not written), readsLegacyCalendarColors lets any
       // account not held in memory read the old keys, one the unreadable
       // row named included.
-      let nonReadersLost = false;
-      let nonReadersGone = false;
-      if (!nonReaders.ok && nonReaders.corrupt !== null) {
-        if (read.ok && read.settings?.legacyCalendarColorReaders != null) nonReadersGone = await removeNonReadersRow();
-        else nonReadersLost = await keepNonReadersAside(nonReaders.corrupt);
-      }
-      // Ids noted before this read (a sign-in racing the start) are kept.
+      // Set before any await: a late settings read applied while a copy
+      // below is out must find the seed held (seedLegacyCalendarColorReaders),
+      // or it would seed every registered account, one the lost row named
+      // included. Ids noted before this read (a sign-in racing the start)
+      // are kept.
       set({
         legacyCalendarColorNonReaders: nonReaders.ok
           ? [...new Set([...nonReaders.ids, ...get().legacyCalendarColorNonReaders])]
           : get().legacyCalendarColorNonReaders,
-        legacyCalendarColorNonReadersReadFailed: !nonReaders.ok && !nonReadersGone,
+        legacyCalendarColorNonReadersReadFailed: !nonReaders.ok,
       });
+      let nonReadersLost = false;
+      if (!nonReaders.ok && nonReaders.corrupt !== null) {
+        if (read.ok && read.settings?.legacyCalendarColorReaders != null) {
+          // Gone: nothing left to protect.
+          if (await removeNonReadersRow()) set({ legacyCalendarColorNonReadersReadFailed: false });
+        } else {
+          // Stays held for good this launch: the retire below seeds [].
+          nonReadersLost = await keepNonReadersAside(nonReaders.corrupt);
+        }
+      }
       const settled = await settleRead(read);
       // This read landed late, while hydrate waited on a copy, and was
       // applied (applyLateRead): its timed-out result here must not undo it.
@@ -1341,19 +1354,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   forceResetUnreadableSettings: async () => {
-    if (!get().settingsReadFailed) return;
+    if (!get().settingsReadFailed) return 'kept';
     // One more read first: whatever can be read is kept (or a corrupt row
     // kept aside, settleRead) rather than reset.
     await get().retryReadSettings();
     // Read after all; or a corrupt row whose copy could not be written,
     // which a reset would lose.
-    if (!get().settingsReadFailed || !get().settingsReadRefused) return;
+    // A corrupt row kept aside leaves the defaults: a reset, though a safe one.
+    if (!get().settingsReadFailed) return lastAppliedKeptAside ? 'reset' : 'read';
+    if (!get().settingsReadRefused) return 'kept';
     console.warn('[settings-store] settings reads kept being refused; reset to the defaults on the user\'s word');
     // A read still out is older than this reset: never applied over it
     // (applyLateRead keeps what it read aside).
     lastAppliedRead = readsStarted;
     resetOverReads = readsStarted;
     applyRead({ ok: true, settings: null }, true);
+    return 'reset';
   },
 
   updateSetting: (key, value) => editSettings(() => ({ [key]: value } as Partial<PersistedSettings>)),

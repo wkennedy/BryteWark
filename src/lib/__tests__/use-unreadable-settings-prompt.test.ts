@@ -9,7 +9,7 @@ import { answerUnreadablePrompt } from '../use-unreadable-settings-prompt';
 
 describe('answerUnreadablePrompt', () => {
   const retry = vi.fn(async () => undefined);
-  const reset = vi.fn(async () => undefined);
+  const reset = vi.fn(async (): Promise<'read' | 'reset' | 'kept'> => 'reset');
   beforeEach(() => {
     vi.clearAllMocks();
     useSettingsStore.setState({ retryReadSettings: retry, forceResetUnreadableSettings: reset });
@@ -29,6 +29,13 @@ describe('answerUnreadablePrompt', () => {
     expect(retry).toHaveBeenCalledTimes(1);
     expect(reset).not.toHaveBeenCalled();
     expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it('reset: says so when the last try read them after all', async () => {
+    useSettingsStore.setState({ settingsReadFailed: true });
+    reset.mockResolvedValueOnce('read');
+    await answerUnreadablePrompt('reset');
+    expect(toast.info).toHaveBeenCalledWith('Your settings were read after all');
   });
 
   it('reset: resets the unreadable settings', async () => {
