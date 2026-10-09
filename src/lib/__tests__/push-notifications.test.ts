@@ -354,6 +354,13 @@ describe('a push setup for a named app account', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it('a resync must name its account, and one without it does nothing', async () => {
+    // @ts-expect-error forAccountId is required on a resync
+    expect(await resyncPushNotifications({ relayBaseUrl: RELAY })).toBeNull();
+    expect(listMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
   it('a resync gives up when the client moves to another account before the setup starts', async () => {
     await AsyncStorage.setItem(SUB_KEY, 'existing');
     await AsyncStorage.setItem('push:subscriptionExpires:v1:' + ACCOUNT_ID, new Date(Date.now() + 3 * 86400000).toISOString());
@@ -1312,7 +1319,7 @@ describe('resyncPushNotifications', () => {
       { id: 'existing', deviceClientId: OUR_DCID, expires, types: ['EmailDelivery'] },
     ]);
 
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result?.subscriptionId).toBe('existing');
     expect(updateMock).toHaveBeenCalledTimes(1);
@@ -1327,7 +1334,7 @@ describe('resyncPushNotifications', () => {
 
     await disablePushForAccount(ACCOUNT_ID);
     vi.clearAllMocks();
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result).toBeNull();
     expect(listMock).not.toHaveBeenCalled();
@@ -1344,7 +1351,7 @@ describe('resyncPushNotifications', () => {
       device: { id: 'existing', deviceClientId: OUR_DCID, isThisDevice: true },
       relayBaseUrl: RELAY,
     });
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result).toBeNull();
     expect(createMock).not.toHaveBeenCalled();
@@ -1356,7 +1363,7 @@ describe('resyncPushNotifications', () => {
     await AsyncStorage.setItem('push:accountIds:v1', JSON.stringify([ACCOUNT_ID]));
     listMock.mockResolvedValue([]);
 
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result).toBeNull();
     expect(createMock).not.toHaveBeenCalled();
@@ -1370,7 +1377,7 @@ describe('resyncPushNotifications', () => {
     await AsyncStorage.setItem(EXPIRES_KEY, inDays(-1));
     listMock.mockResolvedValue([]);
 
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result?.subscriptionId).toBe('new-server-id');
     expect(createMock).toHaveBeenCalledTimes(1);
@@ -1380,7 +1387,7 @@ describe('resyncPushNotifications', () => {
     await AsyncStorage.setItem(SUB_KEY, 'existing');
     listMock.mockResolvedValue([]);
 
-    const result = await resyncPushNotifications({ relayBaseUrl: RELAY });
+    const result = await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID });
 
     expect(result?.subscriptionId).toBe('new-server-id');
   });
@@ -1390,7 +1397,7 @@ describe('resyncPushNotifications', () => {
     await AsyncStorage.setItem(EXPIRES_KEY, inDays(5));
     listMock.mockRejectedValueOnce(new Error('network down'));
 
-    await expect(resyncPushNotifications({ relayBaseUrl: RELAY })).rejects.toThrow('network down');
+    await expect(resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID })).rejects.toThrow('network down');
 
     expect(await AsyncStorage.getItem(SUB_KEY)).toBe('existing');
     expect(await AsyncStorage.getItem(OPTED_OUT_KEY)).toBeNull();
@@ -1408,7 +1415,7 @@ describe('resyncPushNotifications', () => {
     listMock.mockResolvedValue([
       { id: 'new-server-id', deviceClientId: OUR_DCID, expires: inDays(7), types: ['EmailDelivery'] },
     ]);
-    expect((await resyncPushNotifications({ relayBaseUrl: RELAY }))?.subscriptionId).toBe('new-server-id');
+    expect((await resyncPushNotifications({ relayBaseUrl: RELAY, forAccountId: ACCOUNT_ID }))?.subscriptionId).toBe('new-server-id');
   });
 });
 

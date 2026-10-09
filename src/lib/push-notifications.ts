@@ -569,6 +569,12 @@ export interface PushSetupParams {
   forAccountId?: string;
 }
 
+/**
+ * A resync always names the app account it is for: it runs without the user
+ * and must never bring another account's push up to date.
+ */
+export type PushResyncParams = PushSetupParams & { forAccountId: string };
+
 export interface PushSetupResult {
   subscriptionId: string;
   verified: boolean;
@@ -1394,14 +1400,14 @@ async function wasRevokedOnServer(accountId: string): Promise<boolean> {
  * it left push off.
  */
 export async function resyncPushNotifications(
-  params: PushSetupParams,
+  params: PushResyncParams,
 ): Promise<PushSetupResult | null> {
   const username = jmapClient.username;
   const serverUrl = jmapClient.serverUrl;
   if (!username || !serverUrl) return null;
   const accountId = generateAccountId(username, serverUrl);
   // Another account than the caller's: nothing of it to bring up to date.
-  if (params.forAccountId && accountId !== params.forAccountId) return null;
+  if (accountId !== params.forAccountId) return null;
   if (await AsyncStorage.getItem(optedOutKey(accountId))) return null;
   if (await wasRevokedOnServer(accountId)) {
     logPhase('revoked', 'subscription gone before it was due to expire; leaving push off');
