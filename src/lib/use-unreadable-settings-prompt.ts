@@ -2,9 +2,25 @@ import { useEffect } from 'react';
 import { Alert } from 'react-native';
 import { shouldPromptUnreadable, useSettingsStore } from '../stores/settings-store';
 import { useLocaleStore } from '../stores/locale-store';
+import { toast } from '../stores/toast-store';
 
 // Once per launch: a second time would only nag.
 let promptedThisLaunch = false;
+
+/**
+ * A tap on the prompt. The alert can't be taken back once shown, so a read
+ * that worked since is said instead of acted on.
+ */
+export async function answerUnreadablePrompt(choice: 'keep' | 'reset'): Promise<void> {
+  const settings = useSettingsStore.getState();
+  if (!settings.settingsReadFailed) {
+    const t = useLocaleStore.getState().t;
+    toast.info(t('settings.unreadable_read_after_all', 'Your settings were read after all'));
+    return;
+  }
+  if (choice === 'keep') await settings.retryReadSettings();
+  else await settings.forceResetUnreadableSettings();
+}
 
 /**
  * Offers to reset settings the device keeps refusing to read
@@ -26,12 +42,12 @@ export function useUnreadableSettingsPrompt(): void {
         {
           text: t('settings.unreadable_keep', 'Keep trying'),
           style: 'cancel',
-          onPress: () => { void useSettingsStore.getState().retryReadSettings(); },
+          onPress: () => { void answerUnreadablePrompt('keep'); },
         },
         {
           text: t('settings.unreadable_reset', 'Reset settings'),
           style: 'destructive',
-          onPress: () => { void useSettingsStore.getState().forceResetUnreadableSettings(); },
+          onPress: () => { void answerUnreadablePrompt('reset'); },
         },
       ],
     );

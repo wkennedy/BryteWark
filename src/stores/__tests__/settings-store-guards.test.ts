@@ -38,6 +38,8 @@ const STORED = JSON.stringify({ theme: 'dark', sharedCalendarColors: COLORS });
 type Mode = 'read' | 'refuse' | 'hang';
 let modes: Record<string, Mode> = {};
 let hung: { key: string; resolve: (v: string | null) => void }[] = [];
+// Keys whose writes never settle.
+let hangingWrites: Set<string> = new Set();
 
 function startLaunch(): void {
   useSettingsStore.setState({
@@ -60,6 +62,11 @@ describe('settings storage guards', () => {
   beforeEach(async () => {
     modes = {};
     hung = [];
+    hangingWrites = new Set();
+    vi.mocked(AsyncStorage.setItem).mockImplementation(async (key: string, value: string) => {
+      if (hangingWrites.has(key)) return new Promise<void>(() => undefined);
+      return realSetItem(key, value);
+    });
     vi.mocked(AsyncStorage.getItem).mockImplementation(async (key: string) => {
       const mode = modes[key] ?? 'read';
       if (mode === 'refuse') throw new Error('CursorWindow');
@@ -91,6 +98,8 @@ describe('settings storage guards', () => {
         await AsyncStorage.setItem(NON_READERS, raw);
         await launch();
         expect(await AsyncStorage.getItem(NON_READERS_CORRUPT)).toBe(raw);
+        // The seed is only in memory, and on its way to disk: the row stays.
+        expect(await realGetItem(NON_READERS)).toBe(raw);
         expect(get().legacyCalendarColorReaders).toEqual([]);
         expect(get().sharedCalendarColors).toEqual({ 'A|team|c2': '#222222' });
         const written = JSON.parse((await AsyncStorage.getItem(KEY))!);
@@ -104,6 +113,59 @@ describe('settings storage guards', () => {
         expect(readsLegacyCalendarColors(get().legacyCalendarColorReaders, 'C', get().legacyCalendarColorNonReaders)).toBe(false);
       },
     );
+
+    it('goes on a later launch once the stored settings hold the seed, and is not copied again', async () => {
+      await AsyncStorage.setItem(KEY, STORED);
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      await launch();
+      expect(JSON.parse((await realGetItem(KEY))!).legacyCalendarColorReaders).toEqual([]);
+      await AsyncStorage.removeItem(NON_READERS_CORRUPT);
+      await launch();
+      expect(await realGetItem(NON_READERS)).toBeNull();
+      expect(await realGetItem(NON_READERS_CORRUPT)).toBeNull();
+      expect(get().legacyCalendarColorNonReadersReadFailed).toBe(false);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      // An account added later still reads no old colour.
+      await get().noteSignedInWhileColorReadersUnseeded('D');
+      get().seedLegacyCalendarColorReaders(['A', 'D']);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+      expect(readsLegacyCalendarColors(get().legacyCalendarColorReaders, 'D', get().legacyCalendarColorNonReaders)).toBe(false);
+      expect(await realGetItem(NON_READERS)).toBeNull();
+    });
+
+    it('stays while the stored settings hold no seed, even with one in memory', async () => {
+      // Stored readers null: the seed only ever reached memory.
+      await AsyncStorage.setItem(KEY, STORED);
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      useSettingsStore.setState({ legacyCalendarColorReaders: [] });
+      await launch();
+      expect(await realGetItem(NON_READERS)).toBe('{corrupt');
+      expect(await realGetItem(NON_READERS_CORRUPT)).toBe('{corrupt');
+    });
+
+    it('stays, as unreadable, when removing it fails', async () => {
+      await AsyncStorage.setItem(KEY, JSON.stringify({ legacyCalendarColorReaders: [] }));
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      vi.mocked(AsyncStorage.removeItem).mockRejectedValueOnce(new Error('disk'));
+      await launch();
+      expect(await realGetItem(NON_READERS)).toBe('{corrupt');
+      expect(get().legacyCalendarColorNonReadersReadFailed).toBe(true);
+      expect(get().legacyCalendarColorReaders).toEqual([]);
+    });
+
+    it('waits when its copy does not settle in time', async () => {
+      await AsyncStorage.setItem(KEY, STORED);
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      hangingWrites.add(NON_READERS_CORRUPT);
+      vi.useFakeTimers();
+      startLaunch();
+      const done = get().hydrate();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      await done;
+      expect(get().legacyCalendarColorNonReadersReadFailed).toBe(true);
+      expect(get().legacyCalendarColorReaders).toBeNull();
+      expect(get().sharedCalendarColors).toEqual(COLORS);
+    });
 
     it('is not written over by a sign-in before the seed is stored', async () => {
       await AsyncStorage.setItem(KEY, STORED);
@@ -300,6 +362,9 @@ describe('settings storage guards', () => {
       expect(get().settingsReadFailed).toBe(true);
       expect(get().settingsReadRefused).toBe(true);
       expect(foreground.length).toBeGreaterThan(0);
+      // The launch counts as refused.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await realGetItem(REFUSED)).toBe('1');
       // Writes stay blocked.
       get().updateSetting('fontSize', 'large');
       await vi.advanceTimersByTimeAsync(0);
@@ -339,6 +404,70 @@ describe('settings storage guards', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(get().theme).toBe('light');
       expect(JSON.parse((await realGetItem(KEY))!).theme).toBe('light');
+    });
+
+    it('lands before hydrate has applied its own result, and stands', async () => {
+      await AsyncStorage.setItem(KEY, STORED);
+      await AsyncStorage.setItem(NON_READERS, '{corrupt');
+      modes[KEY] = 'hang';
+      // Hydrate then waits on the non-readers copy, for one more bound.
+      hangingWrites.add(NON_READERS_CORRUPT);
+      vi.useFakeTimers();
+      startLaunch();
+      const done = get().hydrate();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      expect(get().hydrated).toBe(false);
+      hung[0].resolve(STORED);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(get().hydrated).toBe(true);
+      expect(get().settingsReadFailed).toBe(false);
+      expect(get().theme).toBe('dark');
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      await done;
+      // Hydrate's own (timed-out) result does not undo it.
+      expect(get().settingsReadFailed).toBe(false);
+      expect(get().theme).toBe('dark');
+      expect(await realGetItem(REFUSED)).not.toBe('1');
+    });
+
+    it('lands after a forced reset: kept aside, never applied', async () => {
+      await AsyncStorage.setItem(KEY, STORED);
+      modes[KEY] = 'hang';
+      vi.useFakeTimers();
+      startLaunch();
+      const done = get().hydrate();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      await done;
+      // The reset's own last read hangs too.
+      const reset = get().forceResetUnreadableSettings();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      await reset;
+      expect(get().settingsReadFailed).toBe(false);
+      expect(get().theme).toBe('system');
+      hung[0].resolve(STORED);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(get().theme).toBe('system');
+      expect(JSON.parse((await realGetItem(KEY))!).theme).toBe('system');
+      expect(await realGetItem(CORRUPT_SETTINGS_KEY)).toBe(STORED);
+    });
+
+    it('a corrupt row whose copy does not settle in time stays blocked', async () => {
+      await AsyncStorage.setItem(KEY, '{corrupt');
+      hangingWrites.add(CORRUPT_SETTINGS_KEY);
+      vi.useFakeTimers();
+      startLaunch();
+      const done = get().hydrate();
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
+      await done;
+      expect(get().settingsReadFailed).toBe(true);
+      expect(get().settingsReadRefused).toBe(false);
+      get().updateSetting('theme', 'light');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await realGetItem(KEY)).toBe('{corrupt');
+      // The retry's copy hangs too; let it run out before the next test.
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_TIMEOUT_MS);
     });
 
     it('a read that settles in time clears its timer', async () => {
