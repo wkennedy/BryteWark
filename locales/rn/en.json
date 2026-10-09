@@ -1278,6 +1278,10 @@
       "default_description": "The default light and dark palettes.",
       "mobile_description": "Pick a colour theme. Themes follow the light/dark setting from Appearance; custom theme packages are managed in the webmail."
     },
+    "unreadable_body": "Your device refused to read your saved settings three times in a row. You can keep trying, or reset them to the defaults (the old settings cannot be recovered).",
+    "unreadable_keep": "Keep trying",
+    "unreadable_reset": "Reset settings",
+    "unreadable_title": "Your settings could not be read",
     "vacation": {
       "date_range": {
         "description": "Optionally limit the auto-reply to a specific period",

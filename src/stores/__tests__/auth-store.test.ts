@@ -46,6 +46,7 @@ vi.mock('../offline-cache-store', async (importOriginal) => ({
   sweepOrphanedOfflineCache: vi.fn(async () => undefined),
 }));
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jmapClient } from '../../api/jmap-client';
 import { sweepOrphanedOfflineCache } from '../offline-cache-store';
 import { forgetAccountData, forgetSharedData } from '../account-data-cleanup';
@@ -642,6 +643,60 @@ describe('auth-store', () => {
       setPendingMailFolder(target('b@mail.example.com'));
       await useAuthStore.getState().removeAccount('b@mail.example.com');
       expect(usePendingMailFolder.getState().target).toBeNull();
+    });
+
+    describe('the settings backups', () => {
+      const BACKUPS = ['webmail:settings:v1:corrupt', 'bulwark:calendar-color-non-readers:v1:corrupt'];
+      const removeItem = vi.mocked(AsyncStorage.removeItem);
+      const realRemoveItem = removeItem.getMockImplementation()!;
+      const stored = () => Promise.all(BACKUPS.map((k) => AsyncStorage.getItem(k)));
+      beforeEach(async () => {
+        for (const k of BACKUPS) await AsyncStorage.setItem(k, '{corrupt');
+      });
+      afterEach(() => {
+        removeItem.mockImplementation(realRemoveItem);
+      });
+
+      it('logoutAll removes them, after the credentials', async () => {
+        useAccountStore.setState({ accounts: [entry('a@mail.example.com'), entry('b@mail.example.com')] });
+        const credentialsGoneAtRemove: boolean[] = [];
+        removeItem.mockImplementation(async (key: string) => {
+          if (BACKUPS.includes(key)) credentialsGoneAtRemove.push(vi.mocked(jmapClient.clearAllCredentials).mock.calls.length > 0);
+          return realRemoveItem(key);
+        });
+
+        await useAuthStore.getState().logoutAll();
+
+        expect(credentialsGoneAtRemove).toEqual([true, true]);
+        expect(await stored()).toEqual([null, null]);
+      });
+
+      it('logoutAll still finishes when removing them fails', async () => {
+        useAccountStore.setState({ accounts: [entry('a@mail.example.com')] });
+        removeItem.mockImplementation(async (key: string) => {
+          if (BACKUPS.includes(key)) throw new Error('storage');
+          return realRemoveItem(key);
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        await useAuthStore.getState().logoutAll();
+
+        expect(useAccountStore.getState().accounts).toEqual([]);
+        expect(useAuthStore.getState().isAuthenticated).toBe(false);
+        expect(useAuthStore.getState().hasRestoredSession).toBe(true);
+        warn.mockRestore();
+      });
+
+      it('logout of one account and removeAccount keep them', async () => {
+        useAccountStore.setState({ accounts: [entry('a@mail.example.com'), entry('b@mail.example.com')] });
+        useAuthStore.setState({ isAuthenticated: true, activeAccountId: 'a@mail.example.com' });
+
+        await useAuthStore.getState().removeAccount('b@mail.example.com');
+        expect(await stored()).toEqual(['{corrupt', '{corrupt']);
+
+        await useAuthStore.getState().logout();
+        expect(await stored()).toEqual(['{corrupt', '{corrupt']);
+      });
     });
 
     it('logoutAll drops a parked folder link', async () => {

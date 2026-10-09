@@ -82,6 +82,7 @@ import { PushOnboardingPrompt } from './src/components/PushOnboardingPrompt';
 import { ToastHost } from './src/components/ToastHost';
 import { UndoSnackbar } from './src/components/UndoSnackbar';
 import { AppIconBadge } from './src/components/AppIconBadge';
+import { useUnreadableSettingsPrompt } from './src/lib/use-unreadable-settings-prompt';
 import { getEmails } from './src/api/email';
 import { signOutWidgets, startWidgetSync } from './src/widgets/sync';
 import { draftContextFromEmail } from './src/lib/draft-context';
@@ -493,6 +494,9 @@ export default function App() {
       void restoreSession();
     }
   }, [hasRestoredSession, restoreSession]);
+
+  // Settings the device keeps refusing to read: offer a reset.
+  useUnreadableSettingsPrompt();
 
   React.useEffect(() => {
     void useSettingsStore.getState().hydrate();
