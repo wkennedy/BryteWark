@@ -33,6 +33,7 @@ import AddressBookPickerSheet from '../components/contacts/AddressBookPickerShee
 import { spacing, radius, typography, fontPx, type ThemePalette } from '../theme/tokens';
 import { useColors } from '../theme/colors';
 import { useLocaleStore, type TranslateFn } from '../stores/locale-store';
+import { ltrIsolate } from '../lib/display-text';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ContactDetail'>;
 type Route = RouteProp<RootStackParamList, 'ContactDetail'>;
@@ -464,7 +465,7 @@ export default function ContactDetailScreen() {
                         onLongPress={() => shareValue(p.number)}
                         style={{ flex: 1 }}
                       >
-                        <Text style={styles.linkText}>{p.number}</Text>
+                        <Text style={styles.linkText}>{ltrIsolate(p.number)}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => openSms(p.number)}

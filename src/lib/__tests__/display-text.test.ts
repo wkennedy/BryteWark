@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plainDisplayText, plainStoredText } from '../display-text';
+import { plainDisplayText, plainStoredText, ltrIsolate } from '../display-text';
 
 describe('plainDisplayText', () => {
   it('strips direction controls a sender could use to reorder what is shown', () => {
@@ -62,5 +62,16 @@ describe('plainStoredText', () => {
     expect(plainStoredText('abcd', 3)).toBeNull();
     expect(plainStoredText('abc', 3)).toBe('abc');
     expect(plainStoredText(null, 3)).toBe('');
+  });
+});
+
+describe('ltrIsolate', () => {
+  it('wraps text so a right-to-left layout keeps its order (a phone number keeps its leading +)', () => {
+    expect(ltrIsolate('+15083986625')).toBe('\u2066+15083986625\u2069');
+  });
+
+  it('leaves empty text empty', () => {
+    expect(ltrIsolate('')).toBe('');
+    expect(ltrIsolate(undefined)).toBe('');
   });
 });
