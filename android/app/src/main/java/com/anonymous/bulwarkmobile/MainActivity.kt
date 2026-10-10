@@ -44,6 +44,13 @@ class MainActivity : ReactActivity() {
     BulwarkFcmModule.emit("fcm:notificationTap", payload.toMap())
   }
 
+  // Hide in recent apps: recents opened from the app shows its live window,
+  // so cover it while no window of the app has focus (RecentsCover).
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    RecentsCover.onActivityFocusChanged(this, hasFocus)
+  }
+
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
    * rendering of the component.
