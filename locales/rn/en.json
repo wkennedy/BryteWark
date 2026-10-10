@@ -758,7 +758,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "Restart the app to apply the new text direction.",
-        "restart_title": "Restart the app",
+        "restart_title": "Restart needed",
         "system_default": "System default"
       },
       "toolbar_labels": {
@@ -1316,6 +1316,7 @@
     }
   },
   "sharing": {
+    "all_shared": "Everyone else on this server has access already.",
     "confirm_manager_title": "Make them a manager?",
     "connection_changed": "The connection changed. Try again.",
     "folder_owner_unknown": "Could not tell whose folder this is, so it can't be shared.",

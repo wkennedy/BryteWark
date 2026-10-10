@@ -248,10 +248,13 @@ export default function ShareSheet({ node, onClose, onChanged }: ShareSheetProps
                     />
                   ) : candidates.length === 0 ? (
                     <Text style={styles.noMatches}>
-                      {/* Only your own principal, which is left out, is nobody else too. */}
-                      {shareCandidatesEmptyReason(principals, ownPrincipalId()) === 'no_matches'
-                        ? t('files.share_no_matches', 'No matches')
-                        : t('files.share_no_users', 'No other users found')}
+                      {{
+                        none: t('files.share_no_users', 'No other users found'),
+                        // Only your own principal, which is left out.
+                        only_self: t('files.share_no_users', 'No other users found'),
+                        all_shared: t('sharing.all_shared', 'Everyone else on this server has access already.'),
+                        no_matches: t('files.share_no_matches', 'No matches'),
+                      }[shareCandidatesEmptyReason(principals, ownPrincipalId(), shares, search)]}
                     </Text>
                   ) : (
                     candidates.map((p) => (

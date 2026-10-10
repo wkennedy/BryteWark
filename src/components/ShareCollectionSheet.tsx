@@ -53,6 +53,7 @@ function sheetStrings(kind: ShareKind, t: TranslateFn) {
       noPrincipals: t('calendar.share.no_principals', 'Sharing is not available on this server.'),
       noMatches: t('calendar.share.no_matches', 'No matches'),
       noOthers: t('sharing.no_principals', 'No other users or groups found.'),
+      allShared: t('sharing.all_shared', 'Everyone else on this server has access already.'),
       failed: t('calendar.share.error', 'Failed to update sharing'),
       managerHint: null,
     };
@@ -65,6 +66,7 @@ function sheetStrings(kind: ShareKind, t: TranslateFn) {
     noPrincipals: t('sharing.no_principals', 'No other users or groups found.'),
     noMatches: t('sharing.no_match', 'No matches.'),
     noOthers: t('sharing.no_principals', 'No other users or groups found.'),
+      allShared: t('sharing.all_shared', 'Everyone else on this server has access already.'),
     failed: t('sharing.share_failed', 'Failed to update sharing'),
     // A folder's manager can send as its owner and hand it on: say so.
     managerHint: kind === 'mailbox'
@@ -337,8 +339,9 @@ export function ShareCollectionSheet<K extends ShareKind>({
                         none: strings.noPrincipals,
                         // Only your own principal, which is left out.
                         only_self: strings.noOthers,
+                        all_shared: strings.allShared,
                         no_matches: strings.noMatches,
-                      }[shareCandidatesEmptyReason(principals, ownPrincipalId())]}
+                      }[shareCandidatesEmptyReason(principals, ownPrincipalId(), shares, search)]}
                     </Text>
                   ) : (
                     candidates.map((p) => (

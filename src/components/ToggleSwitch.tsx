@@ -63,7 +63,7 @@ function makeStyles(c: ThemePalette) {
   },
   trackOff: {
     backgroundColor: c.muted,
-    borderColor: c.textMuted,
+    borderColor: c.mutedForeground,
   },
   thumb: {
     width: componentSizes.toggleThumb,    // h-4 w-4 = 16

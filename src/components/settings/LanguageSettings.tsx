@@ -71,7 +71,7 @@ export function LanguageSettings() {
     const { directionChangePending: pending, t: tr } = useLocaleStore.getState();
     if (wasPending || !pending) return;
     Alert.alert(
-      tr('settings.appearance.language.restart_title', 'Restart the app'),
+      tr('settings.appearance.language.restart_title', 'Restart needed'),
       tr('settings.appearance.language.restart_for_direction', 'Restart the app to apply the new text direction.'),
       [{ text: tr('common.ok', 'OK') }],
     );

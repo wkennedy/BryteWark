@@ -619,7 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "أعد تشغيل التطبيق لتطبيق اتجاه النص الجديد.",
-        "restart_title": "أعد تشغيل التطبيق",
+        "restart_title": "يلزم إعادة التشغيل",
         "system_default": "افتراضي النظام"
       },
       "toolbar_labels": {

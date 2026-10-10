@@ -619,7 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "הפעל מחדש את האפליקציה כדי להחיל את כיוון הטקסט החדש.",
-        "restart_title": "הפעילו מחדש את האפליקציה",
+        "restart_title": "נדרשת הפעלה מחדש",
         "system_default": "ברירת המחדל של המערכת"
       },
       "toolbar_labels": {

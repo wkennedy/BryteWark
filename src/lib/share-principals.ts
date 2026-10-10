@@ -20,13 +20,18 @@ export function principalsListUsable(
 
 /**
  * Why a share sheet has nobody to offer: the server listed no principals,
- * only the user's own (left out of the list), or none matching the search
- * or not shared with already.
+ * only the user's own (left out of the list), everyone else has a share
+ * already (with nothing searched), or none matches the search.
  */
 export function shareCandidatesEmptyReason(
   principals: readonly { id: string }[],
   selfId: string | null,
-): 'none' | 'only_self' | 'no_matches' {
+  shares: Readonly<Record<string, unknown>> = {},
+  search = '',
+): 'none' | 'only_self' | 'all_shared' | 'no_matches' {
   if (principals.length === 0) return 'none';
-  return principals.every((p) => p.id === selfId) ? 'only_self' : 'no_matches';
+  const others = principals.filter((p) => p.id !== selfId);
+  if (others.length === 0) return 'only_self';
+  if (!search.trim() && others.every((p) => shares[p.id] != null)) return 'all_shared';
+  return 'no_matches';
 }

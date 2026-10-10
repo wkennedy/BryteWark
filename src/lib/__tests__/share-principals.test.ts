@@ -30,4 +30,14 @@ describe('shareCandidatesEmptyReason', () => {
     expect(shareCandidatesEmptyReason([p('me'), p('ann')], 'me')).toBe('no_matches');
     expect(shareCandidatesEmptyReason([p('ann')], null)).toBe('no_matches');
   });
+
+  it('says everyone else has access already when the search is empty', () => {
+    const shared = { ann: { mayRead: true } };
+    expect(shareCandidatesEmptyReason([p('me'), p('ann')], 'me', shared, '')).toBe('all_shared');
+    expect(shareCandidatesEmptyReason([p('me'), p('ann')], 'me', shared, '  ')).toBe('all_shared');
+    // A search that finds nobody is still "no matches".
+    expect(shareCandidatesEmptyReason([p('me'), p('ann')], 'me', shared, 'bob')).toBe('no_matches');
+    // A share removed (null) leaves that principal to offer.
+    expect(shareCandidatesEmptyReason([p('me'), p('ann')], 'me', { ann: null }, '')).toBe('no_matches');
+  });
 });

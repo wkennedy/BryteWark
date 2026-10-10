@@ -251,7 +251,9 @@ describe('windowStateForJump', () => {
     // month). Every step must land past that half: more than 3 rows down.
     const bad: string[] = [];
     const today = new Date(2026, 9, 10);
-    for (const [calendar, weekStartsOn] of [[JALALI, 6], [GREGORIAN, 0], [GREGORIAN, 1]] as const) {
+    for (const [calendar, weekStartsOn] of [
+      [JALALI, 6], [JALALI, 0], [JALALI, 1], [GREGORIAN, 0], [GREGORIAN, 1], [GREGORIAN, 6],
+    ] as const) {
       const o: ScrollWindowOptions = { weekStartsOn, calendar };
       let state = freshScrollWindowState('month', today);
       let at = today;

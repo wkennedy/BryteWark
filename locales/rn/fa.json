@@ -619,7 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "برای اعمال جهت جدید متن، برنامه را دوباره راه‌اندازی کنید.",
-        "restart_title": "برنامه را دوباره راه‌اندازی کنید",
+        "restart_title": "راه‌اندازی دوباره لازم است",
         "system_default": "پیش‌فرض سیستم"
       },
       "toolbar_labels": {
