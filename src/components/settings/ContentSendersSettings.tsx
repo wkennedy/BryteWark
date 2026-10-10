@@ -171,7 +171,7 @@ export function ContentSendersSettings() {
             style={({ pressed }) => [styles.trustedButton, pressed && styles.trustedButtonPressed]}
           >
             <Text style={styles.trustedButtonText}>{trustedLabel}</Text>
-            <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+            <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.textMuted} /></View>
           </Pressable>
         </SettingItem>
 

@@ -302,7 +302,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
       accessibilityRole="button"
       style={({ pressed }) => [styles.scopeBanner, pressed && styles.scopeBannerPressed]}
     >
-      <ArrowLeft size={16} color={c.mutedForeground} style={forwardIconStyle(isLayoutRTL())} />
+      <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={16} color={c.mutedForeground} /></View>
       <Text style={styles.scopeBack}>{t('settings.scoped.back', 'Back to my account')}</Text>
       <Text style={styles.scopeName} numberOfLines={1}>
         {t('settings.scoped.managing', 'Managing: {name}', { name: managedAccount.name })}
@@ -339,7 +339,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
             accessibilityLabel={t('common.back', 'Back')}
             style={({ pressed }) => [styles.headerBackBtn, pressed && styles.headerBackBtnPressed]}
           >
-            <ArrowLeft size={20} color={c.text} style={forwardIconStyle(isLayoutRTL())} />
+            <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={20} color={c.text} /></View>
           </Pressable>
           <TabIcon size={20} color={c.mutedForeground} />
           <Text style={styles.headerTitle}>{tabLabel}</Text>
@@ -379,7 +379,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
             accessibilityLabel={t('common.back', 'Back')}
             style={({ pressed }) => [styles.headerBackBtn, pressed && styles.headerBackBtnPressed]}
           >
-            <ArrowLeft size={20} color={c.text} style={forwardIconStyle(isLayoutRTL())} />
+            <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={20} color={c.text} /></View>
           </Pressable>
         ) : (
           <View style={styles.headerLeftSpacer} />
@@ -472,7 +472,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
                         <Text style={styles.notWorkingText}>{badgeLabel}</Text>
                       </View>
                     ) : (
-                      <ChevronRight size={16} color={c.mutedForeground} style={forwardIconStyle(isLayoutRTL())} />
+                      <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={16} color={c.mutedForeground} /></View>
                     )}
                   </Pressable>
                 );

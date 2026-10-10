@@ -31,6 +31,8 @@ import {
 } from 'date-fns';
 import { useCalendarLocale } from '../lib/calendar-locale';
 import { dayLabelFor, headerTitleFor } from '../lib/calendar-system';
+import { isLayoutRTL } from '../i18n';
+import { forwardIconStyle } from '../lib/rtl-layout';
 import { displayNow, isDisplayToday } from '../lib/calendar-timezone';
 import { spacing, radius, typography, type ThemePalette } from '../theme/tokens';
 import { useColors } from '../theme/colors';
@@ -1221,7 +1223,8 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('calendar.nav_prev', 'Previous')}
         >
-          <ChevronLeft size={20} color={c.text} />
+          {/* Back and forward point the way the reader goes. */}
+          <View style={forwardIconStyle(isLayoutRTL())}><ChevronLeft size={20} color={c.text} /></View>
         </Pressable>
         <Button variant="outline" size="sm" onPress={goToday}>
           {t('calendar.views.today', 'Today')}
@@ -1233,7 +1236,7 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('calendar.nav_next', 'Next')}
         >
-          <ChevronRight size={20} color={c.text} />
+          <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={20} color={c.text} /></View>
         </Pressable>
       </View>
 

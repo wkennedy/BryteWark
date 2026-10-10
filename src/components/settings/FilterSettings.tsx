@@ -396,7 +396,7 @@ export function FilterSettings({ onOpenVacation }: FilterSettingsProps = {}) {
             {onOpenVacation && (
               <View style={styles.vacationConfigure}>
                 <Text style={styles.vacationConfigureText}>{t('settings.filters.vacation_configure', 'Configure')}</Text>
-                <ChevronRight size={14} color={c.success} style={forwardIconStyle(isLayoutRTL())} />
+                <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.success} /></View>
               </View>
             )}
           </Pressable>

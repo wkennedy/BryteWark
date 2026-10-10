@@ -189,7 +189,7 @@ function SidebarRow({
             {isExpanded ? (
               <ChevronDown size={12} color={c.textMuted} />
             ) : (
-              <ChevronRight size={12} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+              <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={12} color={c.textMuted} /></View>
             )}
           </Pressable>
         ) : (
@@ -1104,7 +1104,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                   {unifiedExpanded ? (
                     <ChevronDown size={14} color={c.textMuted} />
                   ) : (
-                    <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                    <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.textMuted} /></View>
                   )}
                   <Text style={styles.sectionHeaderText}>{t('sidebar.unified_mailbox', 'Unified mailbox')}</Text>
                 </Pressable>
@@ -1159,7 +1159,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
               {foldersExpanded ? (
                 <ChevronDown size={14} color={c.textMuted} />
               ) : (
-                <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.textMuted} /></View>
               )}
               <Text style={styles.sectionHeaderText}>{t('sidebar.folders', 'Folders')}</Text>
               <View style={{ flex: 1 }} />
@@ -1236,7 +1236,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                   {tagsExpanded ? (
                     <ChevronDown size={14} color={c.textMuted} />
                   ) : (
-                    <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                    <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.textMuted} /></View>
                   )}
                   <Text style={styles.sectionHeaderText}>{t('sidebar.tags', 'Tags')}</Text>
                 </Pressable>

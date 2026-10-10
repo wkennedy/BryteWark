@@ -275,7 +275,7 @@ export function AccountSettings() {
                     <Text style={styles.rowName} numberOfLines={1}>{s.name}</Text>
                     <Text style={styles.rowSub}>{t('settings.account.shared_accounts.shared_label', 'Shared account')}</Text>
                   </View>
-                  {firstTab && <ChevronRight size={16} color={c.mutedForeground} style={forwardIconStyle(isLayoutRTL())} />}
+                  {firstTab && <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={16} color={c.mutedForeground} /></View>}
                 </Pressable>
               );
             })}
