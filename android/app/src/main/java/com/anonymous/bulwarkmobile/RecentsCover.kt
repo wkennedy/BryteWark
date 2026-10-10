@@ -71,6 +71,13 @@ object RecentsCover {
             // Only while the activity is resumed (behind recents or the
             // shade); onResume looks once more when it comes back otherwise.
             if (!isResumed(activity)) return
+            // Dragged into split screen (or the setting turned off) while
+            // covered: the other pane may hold focus, so uncover here rather
+            // than leave this pane blank until it is tapped.
+            if (!BulwarkWindowModule.isRecentsHidden(activity)) {
+                uncover(activity)
+                return
+            }
             onDialogMaybeShown()
             if (covered != null) handler.postDelayed(this, POLL_MS)
         }
