@@ -129,6 +129,7 @@
     "create": "ایجاد",
     "dismiss": "بستن",
     "done": "انجام شد",
+    "ok": "تأیید",
     "open": "باز کردن",
     "open_link_message": "این کار {host} را خارج از برنامه باز می‌کند.",
     "open_link_title": "پیوند باز شود؟",
@@ -618,6 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "برای اعمال جهت جدید متن، برنامه را دوباره راه‌اندازی کنید.",
+        "restart_title": "برنامه را دوباره راه‌اندازی کنید",
         "system_default": "پیش‌فرض سیستم"
       },
       "toolbar_labels": {

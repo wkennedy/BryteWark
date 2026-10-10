@@ -129,6 +129,7 @@
     "create": "إنشاء",
     "dismiss": "إغلاق",
     "done": "تم",
+    "ok": "حسنًا",
     "open": "فتح",
     "open_link_message": "سيؤدي هذا إلى فتح {host} خارج التطبيق.",
     "open_link_title": "فتح الرابط؟",
@@ -618,6 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "أعد تشغيل التطبيق لتطبيق اتجاه النص الجديد.",
+        "restart_title": "أعد تشغيل التطبيق",
         "system_default": "افتراضي النظام"
       },
       "toolbar_labels": {
