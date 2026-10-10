@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 
 vi.mock('../../api/jmap-client', () => {
   class AuthenticationError extends Error { constructor(m: string) { super(m); this.name = 'AuthenticationError'; } }
@@ -54,7 +55,8 @@ import { clientServesActiveAccount, activeAppAccountId } from '../active-client-
 import { trustRecipients } from '../trust-recipients';
 import { toast } from '../../stores/toast-store';
 import { useNetworkStore } from '../../stores/network-store';
-import { useSendQueueStore, type QueuedSend } from '../../stores/send-queue-store';
+import { useSendQueueStore, startSendQueueHydrateRetry, type QueuedSend } from '../../stores/send-queue-store';
+import { allQueuedSends, outboxRows } from '../outbox-rows';
 import {
   flushSendQueue, hasNewEntry, checkSentBeforeResend, ProofLookupError, ResendTooRecentError, RECONCILE_BACKOFF_MS,
 } from '../send-queue-replay';
@@ -1082,6 +1084,48 @@ describe('flushSendQueue: preconditions and accounts', () => {
     expect(useSendQueueStore.getState().hydrated.A).toBeFalsy();
     await flushSendQueue();
     expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('a hydrate storage refused is loaded again on the foreground, shown, and sent once', async () => {
+    // A row from before the attempt mark: hydrate writes it back.
+    await seed(entry());
+    vi.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await expect(useSendQueueStore.getState().hydrateAccount('A')).rejects.toThrow('disk full');
+    expect(useSendQueueStore.getState().hydrateFailed).toEqual({ A: true });
+    expect(entries()).toEqual([]);
+
+    let onChange: ((state: string) => void) | undefined;
+    vi.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, l: (state: string) => void) => {
+      onChange = l;
+      return { remove: () => undefined };
+    }) as unknown as typeof AppState.addEventListener);
+    const stop = startSendQueueHydrateRetry();
+    onChange!('active');
+    // The retry reads and writes back only; it never sends.
+    await vi.waitFor(() => expect(useSendQueueStore.getState().hydrated.A).toBe(true));
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(useSendQueueStore.getState().hydrateFailed).toEqual({});
+
+    const rows = outboxRows(allQueuedSends(useSendQueueStore.getState().entries), {
+      now: Date.now(), activeAppAccountId: 'A', accountLabels: { A: 'me@a.test' },
+    });
+    expect(rows.map((r) => r.id)).toEqual(['q1']);
+
+    await flushSendQueue();
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(entries()).toEqual([]);
+    stop();
+  });
+
+  it('a hydrate storage refused is retried by the next flush, which then sends once', async () => {
+    await seed(entry());
+    vi.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await expect(useSendQueueStore.getState().hydrateAccount('A')).rejects.toThrow('disk full');
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(useSendQueueStore.getState().hydrateFailed).toEqual({});
+    expect(entries()).toEqual([]);
   });
 });
 

@@ -71,7 +71,7 @@ describe('renewPushOnResume', () => {
   it('renews every account: the active one through a resync, the others on their own', async () => {
     await renewPushOnResume(T0);
     expect(resync).toHaveBeenCalledTimes(1);
-    expect(resync).toHaveBeenCalledWith({ relayBaseUrl: RELAY, accountLabel: 'user@example.com' });
+    expect(resync).toHaveBeenCalledWith({ relayBaseUrl: RELAY, accountLabel: 'user@example.com', forAccountId: ACTIVE });
     expect(detached.mock.calls).toEqual([[OTHER]]);
   });
 

@@ -138,6 +138,16 @@ export const CORRUPT_SETTINGS_KEY = 'webmail:settings:v1:corrupt';
 // (legacyCalendarColorNonReaders). A row of its own, not in the settings:
 // a sign-in after a failed settings read must still be recorded.
 const LEGACY_COLOR_NON_READERS_KEY = 'bulwark:calendar-color-non-readers:v1';
+// Where that row goes when it can never be read (as CORRUPT_SETTINGS_KEY).
+const LEGACY_COLOR_NON_READERS_CORRUPT_KEY = `${LEGACY_COLOR_NON_READERS_KEY}:corrupt`;
+// How many launches in a row the first settings read was refused (a number).
+const REFUSED_LAUNCHES_KEY = 'webmail:settings:v1:refused-launches';
+// From this many such launches on, the user is offered a reset
+// (shouldPromptUnreadable).
+const REFUSED_LAUNCHES_BEFORE_PROMPT = 3;
+// A settings read that has not settled by then counts as refused; it is still
+// applied if it lands later.
+export const SETTINGS_READ_TIMEOUT_MS = 10_000;
 
 export interface SidebarApp {
   id: string;
@@ -554,6 +564,11 @@ export interface SettingsState extends PersistedSettings {
   // That row was there but could not be read: the seed waits for a start
   // that reads it, and the row is not written over.
   legacyCalendarColorNonReadersReadFailed: boolean;
+  // The last read of the settings was refused (or did not settle in time),
+  // rather than reading a corrupt row it could not keep aside.
+  settingsReadRefused: boolean;
+  // Launches in a row whose first settings read was refused, as stored.
+  settingsRefusedLaunches: number;
 
   /** Read the identities; concurrent calls share one request. */
   fetchIdentities: () => Promise<void>;
@@ -571,6 +586,13 @@ export interface SettingsState extends PersistedSettings {
   hydrate: () => Promise<void>;
   /** After a failed read: read the stored settings again, and on success apply the edits made meanwhile and write. */
   retryReadSettings: () => Promise<void>;
+  /**
+   * After reads that keep being refused, on the user's word: one more read
+   * (settings that read, or a corrupt row kept aside, win), else the
+   * defaults with the edits held meanwhile, written over the row.
+   */
+  /** 'read' when the last try read them after all, 'reset' when reset, 'kept' when still blocked or not failed. */
+  forceResetUnreadableSettings: () => Promise<'read' | 'reset' | 'kept'>;
 
   // Generic setter — preferred for new code.
   updateSetting: <K extends keyof PersistedSettings>(
@@ -902,43 +924,162 @@ function identityCacheAccount(): string | null {
 
 let hydrateInFlight: Promise<void> | null = null;
 
-type NonReadersRead = { ok: true; ids: string[] } | { ok: false };
+// `work`, or `failed` once SETTINGS_READ_TIMEOUT_MS have passed without it
+// or as soon as it rejects; `late` gets what it gives after the bound. For
+// the settings reads and the writes that guard them (a storage call that
+// never settles must not hold the start, nor count as done).
+function withinStorageBound<T>(what: string, work: () => Promise<T>, failed: T, late?: (value: T) => void): Promise<T> {
+  return new Promise((resolve) => {
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      console.warn(`[settings-store] ${what} did not settle in time; treated as failed`);
+      resolve(failed);
+    }, SETTINGS_READ_TIMEOUT_MS);
+    void Promise.resolve().then(work).catch((err) => {
+      console.warn(`[settings-store] ${what} failed`, err);
+      return failed;
+    }).then((value) => {
+      if (expired) {
+        late?.(value);
+        return;
+      }
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
 
-async function readLegacyColorNonReaders(): Promise<NonReadersRead> {
-  try {
-    const raw = await AsyncStorage.getItem(LEGACY_COLOR_NON_READERS_KEY);
+// Copy `raw` to `key`; true once written.
+function copyAside(key: string, raw: string, what: string): Promise<boolean> {
+  return withinStorageBound(what, async () => {
+    await AsyncStorage.setItem(key, raw);
+    return true;
+  }, false);
+}
+
+// `corrupt` is the row when it was read but is not a list of ids (it never
+// will be); null when the read itself was refused (it may work later).
+type NonReadersRead = { ok: true; ids: string[] } | { ok: false; corrupt: string | null };
+
+function readLegacyColorNonReaders(): Promise<NonReadersRead> {
+  return withinStorageBound('the calendar colour non-readers read', async (): Promise<NonReadersRead> => {
+    let raw: string | null;
+    try {
+      raw = await AsyncStorage.getItem(LEGACY_COLOR_NON_READERS_KEY);
+    } catch (err) {
+      console.warn('[settings-store] calendar colour non-readers read failed', err);
+      return { ok: false, corrupt: null };
+    }
     if (!raw) return { ok: true, ids: [] };
-    const parsed: unknown = JSON.parse(raw);
-    if (!stringArray(parsed)) throw new Error('stored non-readers are not a list of ids');
-    return { ok: true, ids: parsed as string[] };
-  } catch (err) {
-    console.warn('[settings-store] calendar colour non-readers read failed', err);
-    return { ok: false };
-  }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!stringArray(parsed)) throw new Error('stored non-readers are not a list of ids');
+      return { ok: true, ids: parsed as string[] };
+    } catch (err) {
+      console.warn('[settings-store] calendar colour non-readers read failed', err);
+      return { ok: false, corrupt: raw };
+    }
+  }, { ok: false, corrupt: null });
+}
+
+// A non-readers row that can never be read is kept aside, as it was; true
+// once that copy is written. The row itself is left alone (never written
+// over while it can't be read).
+async function keepNonReadersAside(raw: string): Promise<boolean> {
+  if (!(await copyAside(LEGACY_COLOR_NON_READERS_CORRUPT_KEY, raw, 'keeping the unreadable calendar colour non-readers aside'))) return false;
+  console.warn(`[settings-store] unreadable calendar colour non-readers kept at ${LEGACY_COLOR_NON_READERS_CORRUPT_KEY}; the old colours go`);
+  return true;
+}
+
+// Once the stored settings hold the seed, the readers no longer depend on
+// that row: it goes, rather than being copied again every launch. True once
+// removed.
+function removeNonReadersRow(): Promise<boolean> {
+  return withinStorageBound('removing the unreadable calendar colour non-readers', async () => {
+    await AsyncStorage.removeItem(LEGACY_COLOR_NON_READERS_KEY);
+    return true;
+  }, false);
+}
+
+// The accounts signed in while the readers were unseeded are lost with that
+// row, and any registered account may be one: so none reads the old colour
+// keys, which go. An account loses its old colour (it gets a fresh one),
+// never takes another's. Worked out from the state it runs on, so held over
+// a failed settings read it still lands on the stored row; a no-op once
+// seeded.
+function retireLegacyCalendarColors(): void {
+  editSettings((s) => (s.legacyCalendarColorReaders !== null ? null : {
+    legacyCalendarColorReaders: [],
+    sharedCalendarColors: withoutLegacyCalendarColors(s.sharedCalendarColors),
+  }));
 }
 
 // `corrupt` is the row when it was read but is not settings (it never will
 // be); null when the read itself was refused (it may work later).
 type ReadResult = { ok: true; settings: PersistedSettings | null } | { ok: false; corrupt: string | null };
 
+// Reads started, and the last of them applied: a read landing after its
+// time bound is applied only if no newer one was. Reads up to
+// `resetOverReads` were started before a forced reset.
+let readsStarted = 0;
+let lastAppliedRead = 0;
+let resetOverReads = 0;
+
 // The stored settings, merged over the defaults; null when there are none.
-async function readStoredSettings(): Promise<ReadResult> {
+// A read still out after SETTINGS_READ_TIMEOUT_MS is refused, and applied
+// when it lands (applyLateRead).
+function readStoredSettings(): Promise<{ seq: number; read: ReadResult }> {
+  const seq = ++readsStarted;
+  return withinStorageBound(
+    'the settings read',
+    async () => ({ seq, ...(await readStoredRow()) }),
+    { seq, read: { ok: false, corrupt: null }, raw: null },
+    ({ read, raw }) => { void applyLateRead(seq, read, raw); },
+  );
+}
+
+// `raw` is the row as read (null when refused or absent).
+async function readStoredRow(): Promise<{ read: ReadResult; raw: string | null }> {
   let raw: string | null;
   try {
     raw = await AsyncStorage.getItem(STORAGE_KEY);
   } catch (err) {
     console.warn('[settings-store] hydrate failed', err);
-    return { ok: false, corrupt: null };
+    return { read: { ok: false, corrupt: null }, raw: null };
   }
-  if (!raw) return { ok: true, settings: null };
+  if (!raw) return { read: { ok: true, settings: null }, raw: null };
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('stored settings are not an object');
-    return { ok: true, settings: mergeWithDefaults(parsed as Partial<PersistedSettings>) };
+    return { read: { ok: true, settings: mergeWithDefaults(parsed as Partial<PersistedSettings>) }, raw };
   } catch (err) {
     console.warn('[settings-store] hydrate failed', err);
-    return { ok: false, corrupt: raw };
+    return { read: { ok: false, corrupt: raw }, raw };
   }
+}
+
+// A read that landed after its time bound: through the usual path, unless
+// the settings were read since. Before hydrate has applied its own result
+// it is not stale: hydrate then leaves it standing. One started before a
+// forced reset is never applied over it, but the row it read (the settings
+// the reset replaced) is kept aside.
+async function applyLateRead(seq: number, read: ReadResult, raw: string | null): Promise<void> {
+  if (seq <= resetOverReads) {
+    if (raw !== null && await copyAside(CORRUPT_SETTINGS_KEY, raw, 'keeping the settings read after the reset aside')) {
+      console.warn(`[settings-store] settings read after the reset kept at ${CORRUPT_SETTINGS_KEY}`);
+    }
+    return;
+  }
+  const stale = () => {
+    const { hydrated, settingsReadFailed } = useSettingsStore.getState();
+    return seq < lastAppliedRead || (hydrated && !settingsReadFailed);
+  };
+  if (stale()) return;
+  const settled = await settleRead(read);
+  if (!settled.ok || stale()) return;
+  lastAppliedRead = seq;
+  applyRead(settled, settled !== read);
 }
 
 // A row that can never be read would hold every write back for good, so it
@@ -947,14 +1088,51 @@ async function readStoredSettings(): Promise<ReadResult> {
 // a refused read, and the next try copies it again.
 async function settleRead(read: ReadResult): Promise<ReadResult> {
   if (read.ok || read.corrupt === null) return read;
-  try {
-    await AsyncStorage.setItem(CORRUPT_SETTINGS_KEY, read.corrupt);
-  } catch (err) {
-    console.warn('[settings-store] could not keep the unreadable settings aside', err);
-    return read;
-  }
+  if (!(await copyAside(CORRUPT_SETTINGS_KEY, read.corrupt, 'keeping the unreadable settings aside'))) return read;
   console.warn(`[settings-store] unreadable settings kept at ${CORRUPT_SETTINGS_KEY}; starting from the defaults`);
   return { ok: true, settings: null };
+}
+
+// The stored count of refused launches, changed by `next` (given null when
+// it can't be read; a null result leaves it). One change at a time.
+let refusedLaunchesChain: Promise<void> = Promise.resolve();
+function updateRefusedLaunches(next: (count: number | null) => number | null): Promise<void> {
+  refusedLaunchesChain = refusedLaunchesChain.then(async () => {
+    let count: number | null;
+    try {
+      const raw = await AsyncStorage.getItem(REFUSED_LAUNCHES_KEY);
+      const n = Number(raw ?? 0);
+      count = Number.isInteger(n) && n >= 0 ? n : 0;
+    } catch (err) {
+      console.warn('[settings-store] refused-launch count read failed', err);
+      count = null;
+    }
+    const value = next(count);
+    if (value === null) return;
+    if (value !== count) await AsyncStorage.setItem(REFUSED_LAUNCHES_KEY, String(value));
+    useSettingsStore.setState({ settingsRefusedLaunches: value });
+  }).catch((err) => {
+    console.warn('[settings-store] refused-launch count write failed', err);
+  });
+  return refusedLaunchesChain;
+}
+
+/**
+ * Whether to offer resetting settings that can't be read: from the third
+ * launch in a row whose first read was refused, and only while it still is.
+ * Never for a corrupt row not yet kept aside (`refused` false): a reset
+ * would lose it.
+ */
+export function shouldPromptUnreadable(count: number, readFailed: boolean, refused: boolean): boolean {
+  return readFailed && refused && count >= REFUSED_LAUNCHES_BEFORE_PROMPT;
+}
+
+/** Remove the copies of unreadable settings and non-readers rows (resetToDefaults, logoutAll). */
+export async function removeSettingsBackups(): Promise<void> {
+  await Promise.all([
+    AsyncStorage.removeItem(CORRUPT_SETTINGS_KEY),
+    AsyncStorage.removeItem(LEGACY_COLOR_NON_READERS_CORRUPT_KEY),
+  ]);
 }
 
 // After a read: the stored settings (the defaults when there are none, or
@@ -962,10 +1140,14 @@ async function settleRead(read: ReadResult): Promise<ReadResult> {
 // again on them in order and written. An edit is a change to the state, not
 // the value it produced over the defaults, so a trusted sender added
 // meanwhile joins the stored list instead of replacing it.
+// The last read applied was a corrupt row kept aside (the defaults stand in).
+let lastAppliedKeptAside = false;
+
 function applyRead(read: ReadResult, written: boolean): void {
   const store = useSettingsStore;
+  if (read.ok) lastAppliedKeptAside = written && read.settings === null;
   if (!read.ok) {
-    store.setState({ hydrated: true, settingsReadFailed: true });
+    store.setState({ hydrated: true, settingsReadFailed: true, settingsReadRefused: read.corrupt === null });
     retryOnForeground();
     return;
   }
@@ -976,8 +1158,10 @@ function applyRead(read: ReadResult, written: boolean): void {
     const patch = change(next);
     if (patch) next = { ...next, ...patch };
   }
-  store.setState({ ...snapshot(next), hydrated: true, settingsReadFailed: false });
+  store.setState({ ...snapshot(next), hydrated: true, settingsReadFailed: false, settingsReadRefused: false });
   if (edits.length || written) persist(snapshot(store.getState()));
+  // Read (or reset): the refused launches start over.
+  void updateRefusedLaunches(() => 0);
 }
 
 // A change to the settings, worked out from the state it is given (null for
@@ -1040,6 +1224,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settingsReadFailed: false,
   legacyCalendarColorNonReaders: [],
   legacyCalendarColorNonReadersReadFailed: false,
+  settingsReadRefused: false,
+  settingsRefusedLaunches: 0,
 
   fetchIdentities: () => {
     const scope = identityScope();
@@ -1099,16 +1285,48 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // changed a setting would put the stored value back.
     if (hydrateInFlight) return hydrateInFlight;
     const promise = (async () => {
-      const [read, nonReaders] = await Promise.all([readStoredSettings(), readLegacyColorNonReaders()]);
-      // Ids noted before this read (a sign-in racing the start) are kept.
+      const [{ seq, read }, nonReaders] = await Promise.all([readStoredSettings(), readLegacyColorNonReaders()]);
+      // A row that reads but never will: kept aside, then the old colours go
+      // (retireLegacyCalendarColors). A refused read waits for a launch that
+      // reads it. Either way the row stays unwritten (ReadFailed).
+      // Once the stored settings (never just memory: persist is not awaited)
+      // hold the seed, the row is no longer needed and goes instead.
+      // Follow-up: while the readers are still null (the settings row not
+      // read, or the copy not written), readsLegacyCalendarColors lets any
+      // account not held in memory read the old keys, one the unreadable
+      // row named included.
+      // Set before any await: a late settings read applied while a copy
+      // below is out must find the seed held (seedLegacyCalendarColorReaders),
+      // or it would seed every registered account, one the lost row named
+      // included. Ids noted before this read (a sign-in racing the start)
+      // are kept.
       set({
         legacyCalendarColorNonReaders: nonReaders.ok
           ? [...new Set([...nonReaders.ids, ...get().legacyCalendarColorNonReaders])]
           : get().legacyCalendarColorNonReaders,
         legacyCalendarColorNonReadersReadFailed: !nonReaders.ok,
       });
+      let nonReadersLost = false;
+      if (!nonReaders.ok && nonReaders.corrupt !== null) {
+        if (read.ok && read.settings?.legacyCalendarColorReaders != null) {
+          // Gone: nothing left to protect.
+          if (await removeNonReadersRow()) set({ legacyCalendarColorNonReadersReadFailed: false });
+        } else {
+          // Stays held for good this launch: the retire below seeds [].
+          nonReadersLost = await keepNonReadersAside(nonReaders.corrupt);
+        }
+      }
       const settled = await settleRead(read);
-      applyRead(settled, settled !== read);
+      // This read landed late, while hydrate waited on a copy, and was
+      // applied (applyLateRead): its timed-out result here must not undo it.
+      const appliedLate = !settled.ok && lastAppliedRead >= seq;
+      if (!appliedLate) {
+        if (settled.ok) lastAppliedRead = Math.max(lastAppliedRead, seq);
+        applyRead(settled, settled !== read);
+        // This launch's first read was refused.
+        if (!settled.ok && settled.corrupt === null) void updateRefusedLaunches((n) => (n === null ? null : n + 1));
+      }
+      if (nonReadersLost) retireLegacyCalendarColors();
     })().finally(() => { hydrateInFlight = null; });
     hydrateInFlight = promise;
     return promise;
@@ -1118,15 +1336,40 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (!get().settingsReadFailed) return Promise.resolve();
     if (hydrateInFlight) return hydrateInFlight;
     const promise = (async () => {
-      const read = await readStoredSettings();
+      const { seq, read } = await readStoredSettings();
       if (!get().settingsReadFailed) return;
       const settled = await settleRead(read);
       // Still refused: stays blocked, the edits kept, for the next try.
-      if (!settled.ok) return;
+      if (!settled.ok) {
+        if (get().settingsReadFailed) set({ settingsReadRefused: settled.corrupt === null });
+        return;
+      }
+      // Read meanwhile (a late read, a reset).
+      if (!get().settingsReadFailed) return;
+      lastAppliedRead = Math.max(lastAppliedRead, seq);
       applyRead(settled, settled !== read);
     })().finally(() => { hydrateInFlight = null; });
     hydrateInFlight = promise;
     return promise;
+  },
+
+  forceResetUnreadableSettings: async () => {
+    if (!get().settingsReadFailed) return 'kept';
+    // One more read first: whatever can be read is kept (or a corrupt row
+    // kept aside, settleRead) rather than reset.
+    await get().retryReadSettings();
+    // Read after all; or a corrupt row whose copy could not be written,
+    // which a reset would lose.
+    // A corrupt row kept aside leaves the defaults: a reset, though a safe one.
+    if (!get().settingsReadFailed) return lastAppliedKeptAside ? 'reset' : 'read';
+    if (!get().settingsReadRefused) return 'kept';
+    console.warn('[settings-store] settings reads kept being refused; reset to the defaults on the user\'s word');
+    // A read still out is older than this reset: never applied over it
+    // (applyLateRead keeps what it read aside).
+    lastAppliedRead = readsStarted;
+    resetOverReads = readsStarted;
+    applyRead({ ok: true, settings: null }, true);
+    return 'reset';
   },
 
   updateSetting: (key, value) => editSettings(() => ({ [key]: value } as Partial<PersistedSettings>)),
@@ -1248,7 +1491,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   reorderSidebarApps: (apps) => editSettings(() => ({ sidebarApps: apps })),
 
-  resetToDefaults: () => editSettings(() => ({ ...DEFAULT_PERSISTED })),
+  resetToDefaults: () => {
+    editSettings(() => ({ ...DEFAULT_PERSISTED }));
+    // The copies of unreadable rows go with them.
+    void removeSettingsBackups().catch((err) => {
+      console.warn('[settings-store] could not remove the settings backups', err);
+    });
+  },
 
   // Only that app account's shared calendar colours, and the old keys while
   // it may still read them (exportableCalendarColors).

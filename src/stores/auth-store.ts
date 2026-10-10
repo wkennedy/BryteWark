@@ -7,7 +7,7 @@ import { useEmailStore, isShownAccount } from './email-store';
 import { useContactsStore } from './contacts-store';
 import { resetPendingNotificationStores } from './pending-notification-store';
 import { useCalendarStore } from './calendar-store';
-import { useSettingsStore } from './settings-store';
+import { removeSettingsBackups, useSettingsStore } from './settings-store';
 import { useFilterStore } from './filter-store';
 import { useVacationStore } from './vacation-store';
 import { sweepOrphanedOfflineCache } from './offline-cache-store';
@@ -1252,6 +1252,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }));
     }
     await forgetSharedSignedOut();
+    // Copies of unreadable settings rows: signing out of everything takes
+    // them too (a single sign-out keeps them). Last, so a slow removal holds
+    // back none of the cleanups above.
+    await waitAtMost(removeSettingsBackups(), EVICTION_CLEANUP_TIMEOUT_MS, 'removing the settings backups');
 
     set({
       isAuthenticated: false,

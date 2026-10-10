@@ -82,6 +82,7 @@ import { PushOnboardingPrompt } from './src/components/PushOnboardingPrompt';
 import { ToastHost } from './src/components/ToastHost';
 import { UndoSnackbar } from './src/components/UndoSnackbar';
 import { AppIconBadge } from './src/components/AppIconBadge';
+import { useUnreadableSettingsPrompt } from './src/lib/use-unreadable-settings-prompt';
 import { getEmails } from './src/api/email';
 import { signOutWidgets, startWidgetSync } from './src/widgets/sync';
 import { draftContextFromEmail } from './src/lib/draft-context';
@@ -99,7 +100,7 @@ import { addShareListener, getInitialShare, shareAttachments } from './src/lib/s
 import { OfflineCacheBanner } from './src/components/OfflineCacheBanner';
 import { useOfflineCacheStore } from './src/stores/offline-cache-store';
 import { useOutboxStore } from './src/stores/outbox-store';
-import { useSendQueueStore } from './src/stores/send-queue-store';
+import { useSendQueueStore, startSendQueueHydrateRetry } from './src/stores/send-queue-store';
 import { flushSendQueue, hasNewEntry } from './src/lib/send-queue-replay';
 import { startOutboxToasts } from './src/lib/outbox-toasts';
 import { runOfflineSync } from './src/lib/offline-sync';
@@ -494,6 +495,9 @@ export default function App() {
     }
   }, [hasRestoredSession, restoreSession]);
 
+  // Settings the device keeps refusing to read: offer a reset.
+  useUnreadableSettingsPrompt();
+
   React.useEffect(() => {
     void useSettingsStore.getState().hydrate();
     void useLocaleStore.getState().hydrate();
@@ -643,6 +647,11 @@ export default function App() {
       void useSendQueueStore.getState().hydrateAccount(a.id).catch(() => undefined);
     }
   }, [isAuthenticated, accountIds]);
+  // A queue that storage refused to load is loaded again on the foreground.
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    return startSendQueueHydrateRetry();
+  }, [isAuthenticated]);
   React.useEffect(() => {
     if (!isAuthenticated) return;
     return startOutboxToasts(() => {

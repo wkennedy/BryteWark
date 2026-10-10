@@ -47,6 +47,7 @@ async function renewAccount(accountId: string): Promise<'renewed' | 'fine' | 'fa
     await resyncPushNotifications({
       relayBaseUrl,
       accountLabel: jmapClient.username ?? undefined,
+      forAccountId: accountId,
     });
     return 'renewed';
   } catch (error) {

@@ -492,18 +492,27 @@ describe('settings-store', () => {
       useSettingsStore.setState({ legacyCalendarColorNonReaders: [] });
     });
 
-    it('seeds nothing, and leaves the row alone, when that row could not be read', async () => {
+    // A row that reads but is corrupt is kept aside instead
+    // (settings-store-guards.test.ts).
+    it('seeds nothing, and leaves the row alone, when the read of that row was refused', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      await AsyncStorage.setItem('bulwark:calendar-color-non-readers:v1', '{corrupt');
+      await AsyncStorage.setItem('bulwark:calendar-color-non-readers:v1', JSON.stringify(['B']));
+      const realGetItem = vi.mocked(AsyncStorage.getItem).getMockImplementation()!;
+      vi.mocked(AsyncStorage.getItem).mockImplementation(async (key: string) => {
+        if (key === 'bulwark:calendar-color-non-readers:v1') throw new Error('CursorWindow');
+        return realGetItem(key);
+      });
       useSettingsStore.setState({ hydrated: false, legacyCalendarColorNonReaders: [] });
       await get().hydrate();
+      vi.mocked(AsyncStorage.getItem).mockImplementation(realGetItem);
       expect(get().legacyCalendarColorNonReadersReadFailed).toBe(true);
       get().setSharedCalendarColor('team|c1', '#00ff00');
       await get().noteSignedInWhileColorReadersUnseeded('C');
       expect(get().legacyCalendarColorNonReaders).toEqual(['C']);
       get().seedLegacyCalendarColorReaders(['A', 'C']);
       expect(get().legacyCalendarColorReaders).toBeNull();
-      expect(await AsyncStorage.getItem('bulwark:calendar-color-non-readers:v1')).toBe('{corrupt');
+      expect(await AsyncStorage.getItem('bulwark:calendar-color-non-readers:v1')).toBe(JSON.stringify(['B']));
+      expect(await AsyncStorage.getItem('bulwark:calendar-color-non-readers:v1:corrupt')).toBeNull();
       useSettingsStore.setState({ legacyCalendarColorNonReaders: [], legacyCalendarColorNonReadersReadFailed: false });
       warn.mockRestore();
     });

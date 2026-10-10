@@ -12,6 +12,7 @@
 // state when it runs, and updates memory only after its row write succeeded.
 // The store makes no network or JMAP calls.
 
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { OutgoingEmail } from '../api/email';
@@ -144,9 +145,22 @@ interface SendQueueState {
   entries: Record<string, QueuedSend[]>;
   /** True once an account's hydrate has succeeded; mutators (except enqueue/clearAccount) need it. */
   hydrated: Record<string, boolean>;
+  /**
+   * Accounts whose last hydrate rejected (storage refused a read or a
+   * write-back) and that no hydrate has loaded since. Their Outbox is empty
+   * until one does: retryFailedHydrates tries again.
+   */
+  hydrateFailed: Record<string, boolean>;
 
   /** Load an account's rows, merging with memory (memory wins, never downgrades). */
   hydrateAccount: (appAccountId: string) => Promise<void>;
+  /**
+   * Hydrate again each account in `hydrateFailed`, and no other, each on its
+   * own account's chain; one that has loaded or been signed out meanwhile is
+   * skipped. Never rejects: a failure stays recorded for the next try.
+   * Replay retries the active account's hydrate itself before it sends.
+   */
+  retryFailedHydrates: () => Promise<void>;
   /**
    * `messageId` is derived from `outgoing.messageId`; any supplied value is
    * ignored. Rejects with AlreadyQueuedError when the account already holds an
@@ -268,44 +282,77 @@ export const useSendQueueStore = create<SendQueueState>((set, get) => {
     return rows.some(([key, raw]) => parseQueuedSendRow(appAccountId, key, raw)?.messageId === messageId);
   };
 
+  const setFailed = (appAccountId: string, failed: boolean) => {
+    if (!!get().hydrateFailed[appAccountId] === failed) return;
+    const { [appAccountId]: _f, ...rest } = get().hydrateFailed;
+    set({ hydrateFailed: failed ? { ...rest, [appAccountId]: true } : rest });
+  };
+
+  // Runs on the account's chain (serialize); records the outcome.
+  const loadAccount = async (appAccountId: string): Promise<void> => {
+    try {
+      await readAccount(appAccountId);
+    } catch (err) {
+      setFailed(appAccountId, true);
+      throw err;
+    }
+    setFailed(appAccountId, false);
+  };
+
+  const readAccount = async (appAccountId: string): Promise<void> => {
+    const prefix = accountPrefix(appAccountId);
+    const keys = (await AsyncStorage.getAllKeys()).filter(
+      (k) => k.startsWith(prefix) && !k.slice(prefix.length).includes(':'),
+    );
+    const rows = keys.length ? await AsyncStorage.multiGet(keys) : [];
+    const memory = get().entries[appAccountId] ?? [];
+    const inMemory = new Set(memory.map((e) => e.id));
+    const loaded: QueuedSend[] = [];
+    for (const [key, raw] of rows) {
+      const parsed = parseQueuedSendRow(appAccountId, key, raw);
+      if (!parsed || inMemory.has(parsed.id)) continue; // corrupt rows stay on disk untouched
+      let entry = parsed;
+      if (entry.state === 'sending') entry = { ...entry, state: 'uncertain' };
+      // Any stamp at all is from enqueue (a later version's too, which
+      // must not be taken back to 2).
+      if (typeof (entry.schema as unknown) !== 'number') entry = { ...entry, everAttempted: true, schema: 2 };
+      // One write per repaired row; a failed write-back rejects the
+      // hydrate with memory untouched. That holds the account's queue
+      // back (no replay; the composer's already-queued check refuses
+      // with OutboxCheckError) only while storage refuses writes, when
+      // no send could be queued or marked anyway: hydrated stays unset and
+      // hydrateFailed is set, so the next flush or send, or the next return
+      // to the foreground (retryFailedHydrates), tries the hydrate again.
+      if (entry !== parsed) await AsyncStorage.setItem(key, JSON.stringify(entry));
+      loaded.push(entry);
+    }
+    loaded.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const e of loaded) owners.set(e.id, appAccountId);
+    set({
+      entries: { ...get().entries, [appAccountId]: [...memory, ...loaded] },
+      hydrated: { ...get().hydrated, [appAccountId]: true },
+    });
+  };
+
   return {
     entries: {},
     hydrated: {},
+    hydrateFailed: {},
 
-    hydrateAccount: (appAccountId) =>
-      serialize(appAccountId, async () => {
-        const prefix = accountPrefix(appAccountId);
-        const keys = (await AsyncStorage.getAllKeys()).filter(
-          (k) => k.startsWith(prefix) && !k.slice(prefix.length).includes(':'),
-        );
-        const rows = keys.length ? await AsyncStorage.multiGet(keys) : [];
-        const memory = get().entries[appAccountId] ?? [];
-        const inMemory = new Set(memory.map((e) => e.id));
-        const loaded: QueuedSend[] = [];
-        for (const [key, raw] of rows) {
-          const parsed = parseQueuedSendRow(appAccountId, key, raw);
-          if (!parsed || inMemory.has(parsed.id)) continue; // corrupt rows stay on disk untouched
-          let entry = parsed;
-          if (entry.state === 'sending') entry = { ...entry, state: 'uncertain' };
-          // Any stamp at all is from enqueue (a later version's too, which
-          // must not be taken back to 2).
-          if (typeof (entry.schema as unknown) !== 'number') entry = { ...entry, everAttempted: true, schema: 2 };
-          // One write per repaired row; a failed write-back rejects the
-          // hydrate with memory untouched. That holds the account's queue
-          // back (no replay; the composer's already-queued check refuses
-          // with OutboxCheckError) only while storage refuses writes, when
-          // no send could be queued or marked anyway: hydrated stays unset,
-          // so the next flush or send tries the hydrate again.
-          if (entry !== parsed) await AsyncStorage.setItem(key, JSON.stringify(entry));
-          loaded.push(entry);
-        }
-        loaded.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        for (const e of loaded) owners.set(e.id, appAccountId);
-        set({
-          entries: { ...get().entries, [appAccountId]: [...memory, ...loaded] },
-          hydrated: { ...get().hydrated, [appAccountId]: true },
-        });
-      }),
+    hydrateAccount: (appAccountId) => serialize(appAccountId, () => loadAccount(appAccountId)),
+
+    retryFailedHydrates: async () => {
+      const failed = Object.keys(get().hydrateFailed);
+      await Promise.all(failed.map((appAccountId) =>
+        serialize(appAccountId, async () => {
+          // Checked when the task runs: a hydrate queued ahead may have
+          // loaded it, or a sign-out unloaded it.
+          if (!get().hydrateFailed[appAccountId] || get().hydrated[appAccountId]) return;
+          await loadAccount(appAccountId);
+        }).catch((err) => {
+          console.warn('[send-queue] hydrate retry failed:', err);
+        })));
+    },
 
     enqueue: (input) => {
       const raw = input.outgoing?.messageId;
@@ -418,7 +465,8 @@ export const useSendQueueStore = create<SendQueueState>((set, get) => {
         for (const e of get().entries[appAccountId] ?? []) owners.delete(e.id);
         const { [appAccountId]: _gone, ...rest } = get().entries;
         const { [appAccountId]: _h, ...restHydrated } = get().hydrated;
-        set({ entries: rest, hydrated: restHydrated });
+        const { [appAccountId]: _f, ...restFailed } = get().hydrateFailed;
+        set({ entries: rest, hydrated: restHydrated, hydrateFailed: restFailed });
       }),
 
     unloadAccount: (appAccountId) =>
@@ -426,7 +474,20 @@ export const useSendQueueStore = create<SendQueueState>((set, get) => {
         for (const e of get().entries[appAccountId] ?? []) owners.delete(e.id);
         const { [appAccountId]: _gone, ...rest } = get().entries;
         const { [appAccountId]: _h, ...restHydrated } = get().hydrated;
-        set({ entries: rest, hydrated: restHydrated });
+        const { [appAccountId]: _f, ...restFailed } = get().hydrateFailed;
+        set({ entries: rest, hydrated: restHydrated, hydrateFailed: restFailed });
       }),
   };
 });
+
+/**
+ * Retry failed hydrates each time the app comes to the foreground, so an
+ * Outbox left empty by a storage error fills once storage reads and writes
+ * again. Returns the unsubscribe.
+ */
+export function startSendQueueHydrateRetry(): () => void {
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') void useSendQueueStore.getState().retryFailedHydrates();
+  });
+  return () => subscription.remove();
+}
