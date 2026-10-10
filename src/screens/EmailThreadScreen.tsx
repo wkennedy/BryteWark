@@ -49,12 +49,16 @@ import { buildForwardAsAttachmentPayload } from '../lib/forward-as-attachment';
 import { viewerInstance, viewerPages, type ViewerInstance } from '../lib/viewer-pages';
 import { accountScopedId } from '../lib/thread-utils';
 import { runWhileAccountShown } from '../lib/account-bound-timer';
+import { startEdgeOffset } from '../lib/rtl-layout';
+import { isLayoutRTL } from '../i18n';
 import type { Email, EmailAddress, Identity } from '../api/types';
 import type { RootStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'EmailThread'>;
 
 // How long the pages beside the one on screen wait for its body at most.
+/** Most times an RTL pager is put back on the opened message (see onPagerScroll). */
+const RTL_PAGER_CORRECTIONS = 5;
 const NEIGHBOUR_FALLBACK_MS = 1500;
 
 /**
@@ -193,6 +197,14 @@ function EmailViewer({ route, navigation }: Props) {
   // settles, the centred page's id becomes `activeEmailId`, which is what the
   // toolbar and action handlers operate on.
   const listRef = React.useRef<FlatList<Email>>(null);
+  // Right to left, FlatList lays the pages out from the right edge: message
+  // 0 at the right, the next (older) one to its left, where the mirrored Next
+  // arrow points, and a swipe to the right brings it. Its offsets are taken
+  // from that start edge, but Android's scroll events report them from the
+  // left, so they are turned round before use (startEdgeOffset).
+  const pagerRtl = isLayoutRTL();
+  // Set once the user swipes or steps to another message (see settleRtlPager).
+  const pagerMovedRef = React.useRef(false);
   const initialIndexRef = React.useRef(
     Math.max(0, emails.findIndex((e) => e.id === route.params.emailId)),
   );
@@ -275,6 +287,7 @@ function EmailViewer({ route, navigation }: Props) {
 
   const goToIndex = React.useCallback((index: number) => {
     if (index < 0 || index >= emails.length) return;
+    pagerMovedRef.current = true;
     releaseNeighbours();
     listRef.current?.scrollToOffset({ offset: index * windowWidth, animated: true });
     const target = emails[index];
@@ -282,12 +295,54 @@ function EmailViewer({ route, navigation }: Props) {
   }, [emails, windowWidth, releaseNeighbours]);
 
   const onMomentumEnd = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const index = Math.round(e.nativeEvent.contentOffset.x / windowWidth);
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const offset = startEdgeOffset(contentOffset.x, contentSize.width, layoutMeasurement.width, pagerRtl);
+    const index = Math.round(offset / windowWidth);
     const target = emails[index];
     if (target && target.id !== activeEmailId) setActiveEmailId(target.id);
-  }, [emails, windowWidth, activeEmailId]);
+  }, [emails, windowWidth, activeEmailId, pagerRtl]);
 
+  // Right to left, the native scroll view keeps its distance from the right
+  // edge when its content is laid out (ReactHorizontalScrollView
+  // adjustPositionForContentChangeRTL). While it is first laid out it can
+  // report a jump to its start edge (message 0) after the list's scroll to
+  // the opened message, then end up back on that message without reporting
+  // it. The list then renders the pages around message 0 and the opened page
+  // is blank (seen in Arabic on Android). Until the user moves the pager, a
+  // reported offset off the opened message is answered by a scroll back to
+  // it, a few times at most.
+  const activeEmailIdRef = React.useRef(activeEmailId);
+  activeEmailIdRef.current = activeEmailId;
+  const rtlCorrectionsRef = React.useRef(0);
+  const onPagerScroll = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!pagerRtl || pagerMovedRef.current || rtlCorrectionsRef.current >= RTL_PAGER_CORRECTIONS) return;
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    if (contentSize.width <= 0) return;
+    const index = emails.findIndex((m) => m.id === activeEmailIdRef.current);
+    if (index < 0) return;
+    const offset = startEdgeOffset(contentOffset.x, contentSize.width, layoutMeasurement.width, pagerRtl);
+    if (Math.round(offset / windowWidth) === index) return;
+    rtlCorrectionsRef.current += 1;
+    // The view may in fact be back on the message already (the event was a
+    // passing one), and a scroll to where it is reports nothing: the list
+    // would keep rendering around the stale offset. Step a pixel off first,
+    // so both moves report and the list follows.
+    const target = index * windowWidth;
+    listRef.current?.scrollToOffset({ offset: target + 1, animated: false });
+    requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: target, animated: false }));
+  }, [pagerRtl, emails, windowWidth]);
+  const onPagerDragStart = React.useCallback(() => {
+    pagerMovedRef.current = true;
+    releaseNeighbours();
+  }, [releaseNeighbours]);
+
+  // A new width moves every page: put the open one back. Not on mount, where
+  // initialScrollIndex places it (and an RTL list refuses an offset before
+  // its content is laid out).
+  const laidOutWidthRef = React.useRef(windowWidth);
   React.useLayoutEffect(() => {
+    if (laidOutWidthRef.current === windowWidth) return;
+    laidOutWidthRef.current = windowWidth;
     const index = emails.findIndex((e) => e.id === activeEmailId);
     if (index >= 0) listRef.current?.scrollToOffset({ offset: index * windowWidth, animated: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -778,8 +833,14 @@ function EmailViewer({ route, navigation }: Props) {
             initialNumToRender={1}
             maxToRenderPerBatch={2}
             removeClippedSubviews
+            onScroll={onPagerScroll}
+            // Every scroll event reaches the list: with the default 50 ms
+            // throttle, the last of the quick moves the RTL scroll view
+            // makes while it is first laid out can be dropped, and the list
+            // then renders the pages around a stale offset (a blank page).
+            scrollEventThrottle={16}
             scrollEnabled={!pagerLocked}
-            onScrollBeginDrag={releaseNeighbours}
+            onScrollBeginDrag={onPagerDragStart}
             onMomentumScrollEnd={onMomentumEnd}
             renderItem={({ item, index }) => (
               <View style={{ width: windowWidth }}>
@@ -814,7 +875,10 @@ function EmailViewer({ route, navigation }: Props) {
                   onAddressPress={setAddressSheet}
                   onEmailPatched={onEmailPatched}
                   onReply={navigateCompose}
-                  onSwipe={(dir) => goToIndex(dir === 'next' ? index + 1 : index - 1)}
+                  // The body reports a drag to the left as 'next'. Right to
+                  // left the next message is to the left, so a drag to the
+                  // right brings it, as the pager's own swipe does.
+                  onSwipe={(dir) => goToIndex((dir === 'next') !== pagerRtl ? index + 1 : index - 1)}
                   onZoomChange={(z) => setPagerLocked(z.pinching || z.zoomed)}
                 />
               </View>

@@ -61,3 +61,13 @@ export function toggleThumbX(on: boolean, rtl: boolean): number {
 export function forwardIconStyle(rtl: boolean): { transform: [{ scaleX: -1 }] } | undefined {
   return rtl ? { transform: [{ scaleX: -1 }] } : undefined;
 }
+
+/**
+ * A horizontal list's scroll position measured from its start edge: the
+ * left in LTR, the right in RTL. Android reports `contentOffset.x` from the
+ * left in both, while FlatList lays a right-to-left list out from the right
+ * and takes `scrollToOffset` from the start edge.
+ */
+export function startEdgeOffset(x: number, contentWidth: number, viewportWidth: number, rtl: boolean): number {
+  return rtl ? contentWidth - (x + viewportWidth) : x;
+}

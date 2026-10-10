@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bandEdgeStyle, drawerClosedX, drawerSafeEdges, forwardIconStyle, toggleThumbX } from '../rtl-layout';
+import { bandEdgeStyle, drawerClosedX, drawerSafeEdges, forwardIconStyle, startEdgeOffset, toggleThumbX } from '../rtl-layout';
 import { resolveRelease } from '../../components/swipe-gesture';
 
 describe('rtl-layout', () => {
@@ -37,5 +37,15 @@ describe('rtl-layout', () => {
     const config = { mode: 'instant' as const, leftAction: 'delete' as const, rightAction: 'archive' as const };
     expect(resolveRelease({ dx: 200, dy: 0, vx: 0 }, config, null)).toEqual({ kind: 'fire', action: 'archive', direction: 1 });
     expect(resolveRelease({ dx: -200, dy: 0, vx: 0 }, config, null)).toEqual({ kind: 'fire', action: 'delete', direction: -1 });
+  });
+});
+
+describe('startEdgeOffset', () => {
+  it('measures from the left in LTR and from the right in RTL', () => {
+    // 13 pages of 400 wide; the 4th page (index 3) on screen.
+    expect(startEdgeOffset(1200, 5200, 400, false)).toBe(1200);
+    // In RTL the 4th page sits 4 pages in from the right edge.
+    expect(startEdgeOffset(3600, 5200, 400, true)).toBe(1200);
+    expect(startEdgeOffset(4800, 5200, 400, true)).toBe(0);
   });
 });
