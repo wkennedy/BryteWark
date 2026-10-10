@@ -311,14 +311,17 @@ function EmailViewer({ route, navigation }: Props) {
   // is blank (seen in Arabic on Android). Until the user moves the pager, a
   // reported offset off the opened message is answered by a scroll back to
   // it, a few times at most.
-  const activeEmailIdRef = React.useRef(activeEmailId);
-  activeEmailIdRef.current = activeEmailId;
   const rtlCorrectionsRef = React.useRef(0);
   const onPagerScroll = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (!pagerRtl || pagerMovedRef.current || rtlCorrectionsRef.current >= RTL_PAGER_CORRECTIONS) return;
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    if (contentSize.width <= 0) return;
-    const index = emails.findIndex((m) => m.id === activeEmailIdRef.current);
+    // Not laid out in full yet: the index would be wrong and a scroll would be
+    // dropped (VirtualizedList won't scroll RTL before layout), so wait for the
+    // next event rather than spend a correction on it.
+    if (contentSize.width < emails.length * windowWidth) return;
+    // Until the user moves the pager, the page to hold is the one opened, not
+    // whatever a stray event made active.
+    const index = emails.findIndex((m) => m.id === route.params.emailId);
     if (index < 0) return;
     const offset = startEdgeOffset(contentOffset.x, contentSize.width, layoutMeasurement.width, pagerRtl);
     if (Math.round(offset / windowWidth) === index) return;
@@ -330,7 +333,7 @@ function EmailViewer({ route, navigation }: Props) {
     const target = index * windowWidth;
     listRef.current?.scrollToOffset({ offset: target + 1, animated: false });
     requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: target, animated: false }));
-  }, [pagerRtl, emails, windowWidth]);
+  }, [pagerRtl, emails, windowWidth, route.params.emailId]);
   const onPagerDragStart = React.useCallback(() => {
     pagerMovedRef.current = true;
     releaseNeighbours();
@@ -838,7 +841,8 @@ function EmailViewer({ route, navigation }: Props) {
             // throttle, the last of the quick moves the RTL scroll view
             // makes while it is first laid out can be dropped, and the list
             // then renders the pages around a stale offset (a blank page).
-            scrollEventThrottle={16}
+            // Left to right keeps the default.
+            scrollEventThrottle={pagerRtl ? 16 : undefined}
             scrollEnabled={!pagerLocked}
             onScrollBeginDrag={onPagerDragStart}
             onMomentumScrollEnd={onMomentumEnd}
