@@ -15,6 +15,7 @@ import {
   type ScrollWindowOptions,
 } from '../calendar-scroll-window';
 import { GREGORIAN, JALALI } from '../calendar-system';
+import { monthFocusRow, windowWeekStarts } from '../calendar-month-scroll';
 
 // #759: every calendar view keeps one window of days around the focused
 // day; edges double, navigation inside the window does not reset it.
@@ -240,6 +241,31 @@ describe('windowStateForJump', () => {
       expect(windowStateForJump(atCap, 'month', earliestInside(atCap), opts)).toBe(atCap);
     }
     expect(cappedGrowths).toBeGreaterThan(0);
+  });
+
+  it('lands every step back a month clear of the list\'s start edge, in Jalali and Gregorian', () => {
+    // The month list widens its start once it comes within half its six-row
+    // viewport of the top. That prepend cancels the scroll animation where it
+    // is, so a step back that lands on row 1 often stops short and the title
+    // goes back to the month you left (Persian device check: two taps per
+    // month). Every step must land past that half: more than 3 rows down.
+    const bad: string[] = [];
+    const today = new Date(2026, 9, 10);
+    for (const [calendar, weekStartsOn] of [[JALALI, 6], [GREGORIAN, 0], [GREGORIAN, 1]] as const) {
+      const o: ScrollWindowOptions = { weekStartsOn, calendar };
+      let state = freshScrollWindowState('month', today);
+      let at = today;
+      for (let step = 0; step < 14; step++) {
+        at = calendar.addMonths(at, -1);
+        state = windowStateForJump(state, 'month', at, o);
+        const window = computeScrollWindow(state, o);
+        const row = monthFocusRow(window, at, windowWeekStarts(window).length, o);
+        if (window.canExtendStart && row <= 3) {
+          bad.push(`${calendar.kind} ${weekStartsOn} ${local(at)} row ${row}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 
   it('still starts a fresh month window at a target outside it', () => {
