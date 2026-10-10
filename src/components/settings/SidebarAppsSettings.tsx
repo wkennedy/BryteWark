@@ -10,6 +10,7 @@ import { useColors } from '../../theme/colors';
 import { useSettingsStore, type SidebarApp } from '../../stores/settings-store';
 import { useLocaleStore } from '../../stores/locale-store';
 import { sanitizeSidebarAppUrl } from '../../lib/sidebar-apps';
+import { sidebarAppUrlProblem } from '../../lib/sidebar-app-url';
 
 export function SidebarAppsSettings() {
   const c = useColors();
@@ -165,7 +166,11 @@ function AppForm({ initial, onSave, onCancel }: AppFormProps) {
           keyboardType="url"
         />
         {url.length > 0 && safeUrl === null && (
-          <Text style={formStyles.error}>{t('settings.sidebar_apps.form.url_invalid', "Enter a web address starting with https://")}</Text>
+          <Text style={formStyles.error}>
+            {sidebarAppUrlProblem(url) === 'credentials'
+              ? t('settings.sidebar_apps.form.url_credentials', "Remove the user name and password from the address")
+              : t('settings.sidebar_apps.form.url_invalid', "Enter a web address starting with https://")}
+          </Text>
         )}
       </View>
 

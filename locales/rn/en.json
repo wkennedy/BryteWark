@@ -163,6 +163,7 @@
     "create": "Create",
     "dismiss": "Dismiss",
     "done": "Done",
+    "ok": "OK",
     "open": "Open",
     "open_link_message": "This will open {host} outside the app.",
     "open_link_title": "Open link?",
@@ -757,6 +758,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "Restart the app to apply the new text direction.",
+        "restart_title": "Restart the app",
         "system_default": "System default"
       },
       "toolbar_labels": {
@@ -1245,6 +1247,7 @@
         "open_mode": "Open mode",
         "show_on_mobile": "Show on mobile",
         "url": "URL",
+        "url_credentials": "Remove the user name and password from the address",
         "url_invalid": "Enter a web address starting with https://"
       },
       "keep_loaded_description_mobile": "Keep inline apps running in the background when switching away.",

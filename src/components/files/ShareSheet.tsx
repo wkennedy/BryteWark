@@ -18,6 +18,7 @@ import type { FileNode, FileNodeRights, Principal } from '../../api/types';
 import { spacing, radius, typography, type ThemePalette } from '../../theme/tokens';
 import { useColors } from '../../theme/colors';
 import { useLocaleStore } from '../../stores/locale-store';
+import { shareCandidatesEmptyReason } from '../../lib/share-principals';
 
 type RolePreset = 'read' | 'readWrite' | 'manager';
 
@@ -247,9 +248,10 @@ export default function ShareSheet({ node, onClose, onChanged }: ShareSheetProps
                     />
                   ) : candidates.length === 0 ? (
                     <Text style={styles.noMatches}>
-                      {principals.length === 0
-                        ? t('files.share_no_users', 'No other users found')
-                        : t('files.share_no_matches', 'No matches')}
+                      {/* Only your own principal, which is left out, is nobody else too. */}
+                      {shareCandidatesEmptyReason(principals, ownPrincipalId()) === 'no_matches'
+                        ? t('files.share_no_matches', 'No matches')
+                        : t('files.share_no_users', 'No other users found')}
                     </Text>
                   ) : (
                     candidates.map((p) => (
