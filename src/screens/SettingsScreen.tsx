@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -53,8 +54,7 @@ import {
 } from '../lib/settings-search';
 import { SearchHighlightContext, type SearchHighlight } from '../components/settings/search-highlight';
 import { BUILTIN_THEMES } from '../theme/builtin-themes';
-import { getDictionary, isLayoutRTL } from '../i18n';
-import { forwardIconStyle } from '../lib/rtl-layout';
+import { getDictionary } from '../i18n';
 
 type Tab = SettingsTabId;
 
@@ -302,7 +302,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
       accessibilityRole="button"
       style={({ pressed }) => [styles.scopeBanner, pressed && styles.scopeBannerPressed]}
     >
-      <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={16} color={c.mutedForeground} /></View>
+      <DirectionalIcon><ArrowLeft size={16} color={c.mutedForeground} /></DirectionalIcon>
       <Text style={styles.scopeBack}>{t('settings.scoped.back', 'Back to my account')}</Text>
       <Text style={styles.scopeName} numberOfLines={1}>
         {t('settings.scoped.managing', 'Managing: {name}', { name: managedAccount.name })}
@@ -339,7 +339,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
             accessibilityLabel={t('common.back', 'Back')}
             style={({ pressed }) => [styles.headerBackBtn, pressed && styles.headerBackBtnPressed]}
           >
-            <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={20} color={c.text} /></View>
+            <DirectionalIcon><ArrowLeft size={20} color={c.text} /></DirectionalIcon>
           </Pressable>
           <TabIcon size={20} color={c.mutedForeground} />
           <Text style={styles.headerTitle}>{tabLabel}</Text>
@@ -387,7 +387,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
             accessibilityLabel={t('common.back', 'Back')}
             style={({ pressed }) => [styles.headerBackBtn, pressed && styles.headerBackBtnPressed]}
           >
-            <View style={forwardIconStyle(isLayoutRTL())}><ArrowLeft size={20} color={c.text} /></View>
+            <DirectionalIcon><ArrowLeft size={20} color={c.text} /></DirectionalIcon>
           </Pressable>
         ) : (
           <View style={styles.headerLeftSpacer} />
@@ -480,7 +480,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
                         <Text style={styles.notWorkingText}>{badgeLabel}</Text>
                       </View>
                     ) : (
-                      <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={16} color={c.mutedForeground} /></View>
+                      <DirectionalIcon><ChevronRight size={16} color={c.mutedForeground} /></DirectionalIcon>
                     )}
                   </Pressable>
                 );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable, TextInput, Alert, AppState,
 } from 'react-native';
@@ -460,7 +461,7 @@ export default function UnifiedInboxScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={t('common.back', 'Back')}
           >
-            <ArrowLeft size={22} color={c.text} />
+            <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
           <View style={styles.headerBtn}>

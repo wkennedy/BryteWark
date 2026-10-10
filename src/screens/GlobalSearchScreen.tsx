@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
@@ -241,7 +242,7 @@ export default function GlobalSearchScreen({ navigation, route }: Props) {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <View style={styles.inputArea}>
           <Search size={16} color={c.textMuted} />

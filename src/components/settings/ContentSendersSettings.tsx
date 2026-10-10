@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, TextInput, FlatList, Modal, Alert,
 } from 'react-native';
@@ -11,8 +12,6 @@ import { useSettingsStore, type ExternalContentPolicy } from '../../stores/setti
 import { useContactsStore } from '../../stores/contacts-store';
 import { useHasContacts } from '../../lib/capabilities';
 import { isTrustedSendersSyncOn } from '../../lib/trusted-senders';
-import { forwardIconStyle } from '../../lib/rtl-layout';
-import { isLayoutRTL } from '../../i18n';
 import { useLocaleStore } from '../../stores/locale-store';
 
 interface TrustedRow {
@@ -171,7 +170,7 @@ export function ContentSendersSettings() {
             style={({ pressed }) => [styles.trustedButton, pressed && styles.trustedButtonPressed]}
           >
             <Text style={styles.trustedButtonText}>{trustedLabel}</Text>
-            <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.textMuted} /></View>
+            <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
           </Pressable>
         </SettingItem>
 

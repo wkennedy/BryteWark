@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import {
   Plus, X, Code, AlertTriangle, Filter, RotateCcw, Lock,
@@ -26,8 +27,6 @@ import { formatConditionValue, summarizeRule } from '../../lib/sieve/condition-v
 import { supportsPeriods } from '../../lib/sieve/period';
 import { periodLabel } from '../../lib/filters/rule-period';
 import { clientServesAccount } from '../../lib/active-client-account';
-import { forwardIconStyle } from '../../lib/rtl-layout';
-import { isLayoutRTL } from '../../i18n';
 
 type Translate = (key: string, fallback?: string) => string;
 type PeriodLabel = ReturnType<typeof periodLabel>;
@@ -396,7 +395,7 @@ export function FilterSettings({ onOpenVacation }: FilterSettingsProps = {}) {
             {onOpenVacation && (
               <View style={styles.vacationConfigure}>
                 <Text style={styles.vacationConfigureText}>{t('settings.filters.vacation_configure', 'Configure')}</Text>
-                <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={14} color={c.success} /></View>
+                <DirectionalIcon><ChevronRight size={14} color={c.success} /></DirectionalIcon>
               </View>
             )}
           </Pressable>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, Modal, Animated, Easing, TextInput, ActivityIndicator,
 } from 'react-native';
@@ -185,7 +186,7 @@ export default function FilePickerSheet({ visible, owner, ownerActiveNow, onClos
         <Text style={styles.rowLabel} numberOfLines={1}>{name}</Text>
         {detail ? <Text style={styles.rowDetail} numberOfLines={1}>{detail}</Text> : null}
       </View>
-      <ChevronRight size={16} color={c.textMuted} />
+      <DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>
     </Pressable>
   );
 
@@ -321,7 +322,7 @@ export default function FilePickerSheet({ visible, owner, ownerActiveNow, onClos
               </Pressable>
               {trail.map((crumb, i) => (
                 <View key={crumb.id} style={styles.crumbItem}>
-                  <ChevronRight size={14} color={c.textMuted} />
+                  <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
                   <Pressable onPress={() => setTrail(trail.slice(0, i + 1))} accessibilityRole="button" hitSlop={4}>
                     <Text
                       style={[styles.crumb, i === trail.length - 1 && styles.crumbCurrent]}

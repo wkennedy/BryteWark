@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Image, ActivityIndicator, Modal, Platform, ScrollView, TouchableWithoutFeedback, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -304,10 +305,10 @@ const EmailRow = React.memo(function EmailRow({
               <Star size={componentSizes.statusIcon} color={c.starred} fill={c.starred} />
             )}
             {answered && (
-              <Reply size={componentSizes.statusIcon} color={c.textMuted} />
+              <DirectionalIcon><Reply size={componentSizes.statusIcon} color={c.textMuted} /></DirectionalIcon>
             )}
             {forwarded && (
-              <Forward size={componentSizes.statusIcon} color={c.textMuted} />
+              <DirectionalIcon><Forward size={componentSizes.statusIcon} color={c.textMuted} /></DirectionalIcon>
             )}
             {item.hasAttachment && (
               <Paperclip size={componentSizes.statusIcon} color={c.textMuted} />

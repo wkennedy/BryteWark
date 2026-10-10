@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   Alert,
   AppState,
@@ -31,8 +32,6 @@ import {
 } from 'date-fns';
 import { useCalendarLocale } from '../lib/calendar-locale';
 import { dayLabelFor, headerTitleFor } from '../lib/calendar-system';
-import { isLayoutRTL } from '../i18n';
-import { forwardIconStyle } from '../lib/rtl-layout';
 import { displayNow, isDisplayToday } from '../lib/calendar-timezone';
 import { spacing, radius, typography, type ThemePalette } from '../theme/tokens';
 import { useColors } from '../theme/colors';
@@ -1224,7 +1223,7 @@ export default function CalendarScreen() {
           accessibilityLabel={t('calendar.nav_prev', 'Previous')}
         >
           {/* Back and forward point the way the reader goes. */}
-          <View style={forwardIconStyle(isLayoutRTL())}><ChevronLeft size={20} color={c.text} /></View>
+          <DirectionalIcon><ChevronLeft size={20} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Button variant="outline" size="sm" onPress={goToday}>
           {t('calendar.views.today', 'Today')}
@@ -1236,7 +1235,7 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('calendar.nav_next', 'Next')}
         >
-          <View style={forwardIconStyle(isLayoutRTL())}><ChevronRight size={20} color={c.text} /></View>
+          <DirectionalIcon><ChevronRight size={20} color={c.text} /></DirectionalIcon>
         </Pressable>
       </View>
 

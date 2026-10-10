@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert,
   KeyboardAvoidingView, Platform, Modal, Image, ActivityIndicator,
@@ -181,7 +182,7 @@ function Section({
         {collapsible && (
           isOpen
             ? <ChevronDown size={14} color={c.textMuted} />
-            : <ChevronRight size={14} color={c.textMuted} />
+            : <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
         )}
       </Pressable>
       {isOpen && <View style={styles.sectionBody}>{children}</View>}
@@ -631,7 +632,7 @@ export default function ContactFormScreen() {
         accessibilityRole="button"
         accessibilityLabel={t('common.back', 'Back')}
       >
-        <ArrowLeft size={22} color={c.text} />
+        <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
       </Pressable>
       <Text style={styles.headerTitle} numberOfLines={1}>{headerTitle}</Text>
       <Pressable
@@ -683,7 +684,7 @@ export default function ContactFormScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('common.back', 'Back')}
           >
-            <ArrowLeft size={22} color={c.text} />
+            <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>{headerTitle}</Text>
         </View>

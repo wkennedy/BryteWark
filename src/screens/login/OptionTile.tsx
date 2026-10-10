@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../../components/DirectionalIcon';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { spacing, radius, typography, type ThemePalette } from '../../theme/tokens';
@@ -50,7 +51,7 @@ export default function OptionTile({
         <Text style={styles.title}>{title}</Text>
         {description ? <Text style={styles.description}>{description}</Text> : null}
       </View>
-      <ChevronRight size={18} color={c.textMuted} />
+      <DirectionalIcon><ChevronRight size={18} color={c.textMuted} /></DirectionalIcon>
     </Pressable>
   );
 }

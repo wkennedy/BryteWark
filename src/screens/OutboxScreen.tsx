@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Send } from 'lucide-react-native';
@@ -175,7 +176,7 @@ export default function OutboxScreen({ navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{t('outbox.title', 'Outbox')}</Text>
         <View style={styles.headerBtn} />

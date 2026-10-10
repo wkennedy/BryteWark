@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Paperclip, Reply, ReplyAll, Forward, Star } from 'lucide-react-native';
 import type { Email } from '../../api/types';
@@ -77,15 +78,15 @@ export function ThreadMessageCard({
       {!bare && (
         <View style={[styles.actions, !replyable && styles.actionsDisabled]}>
           <Pressable style={styles.actionBtn} onPress={reply('reply')} hitSlop={4}>
-            <Reply size={16} color={c.textSecondary} />
+            <DirectionalIcon><Reply size={16} color={c.textSecondary} /></DirectionalIcon>
             <Text style={styles.actionLabel}>{t('email_viewer.reply', 'Reply')}</Text>
           </Pressable>
           <Pressable style={styles.actionBtn} onPress={reply('replyAll')} hitSlop={4}>
-            <ReplyAll size={16} color={c.textSecondary} />
+            <DirectionalIcon><ReplyAll size={16} color={c.textSecondary} /></DirectionalIcon>
             <Text style={styles.actionLabel}>{t('email_viewer.reply_all', 'Reply All')}</Text>
           </Pressable>
           <Pressable style={styles.actionBtn} onPress={reply('forward')} hitSlop={4}>
-            <Forward size={16} color={c.textSecondary} />
+            <DirectionalIcon><Forward size={16} color={c.textSecondary} /></DirectionalIcon>
             <Text style={styles.actionLabel}>{t('email_viewer.forward', 'Forward')}</Text>
           </Pressable>
         </View>

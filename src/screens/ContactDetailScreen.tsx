@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Linking, Alert, Image, Share,
   Animated, Dimensions, Easing, Modal,
@@ -157,7 +158,7 @@ export default function ContactDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('common.back', 'Back')}
           >
-            <ArrowLeft size={22} color={c.text} />
+            <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
           </Pressable>
           <Text style={styles.headerTitle}>{t('contacts.contact', 'Contact')}</Text>
         </View>
@@ -363,7 +364,7 @@ export default function ContactDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {isGroup(contact) ? t('contacts.group', 'Group') : t('contacts.contact', 'Contact')}

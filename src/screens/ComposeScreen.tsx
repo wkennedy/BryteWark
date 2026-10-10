@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, TextInput, Pressable, ScrollView,
   Keyboard, Dimensions, Platform, ActivityIndicator, Alert, Modal, Switch, InteractionManager, type AlertButton,
@@ -3154,9 +3155,9 @@ export default function ComposeScreen({ route, navigation }: Props) {
               <View style={styles.formatSep} />
 
               <ToolbarButton onPress={() => editorRef.current?.exec('undo')}
-                icon={<Undo2 size={18} color={c.textSecondary} />} />
+                icon={<DirectionalIcon><Undo2 size={18} color={c.textSecondary} /></DirectionalIcon>} />
               <ToolbarButton onPress={() => editorRef.current?.exec('redo')}
-                icon={<Redo2 size={18} color={c.textSecondary} />} />
+                icon={<DirectionalIcon><Redo2 size={18} color={c.textSecondary} /></DirectionalIcon>} />
             </>
           )}
         </ScrollView>

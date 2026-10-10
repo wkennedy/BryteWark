@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator,
   Modal, useWindowDimensions, Animated, Easing, Alert, FlatList,
@@ -614,19 +615,19 @@ function EmailViewer({ route, navigation }: Props) {
   > = {
     reply: {
       label: t('email_viewer.reply', 'Reply'),
-      icon: (s, col) => <Reply size={s} color={col} />,
+      icon: (s, col) => <DirectionalIcon><Reply size={s} color={col} /></DirectionalIcon>,
       onPress: () => navigateCompose('reply'),
       available: true,
     },
     replyAll: {
       label: t('email_viewer.reply_all', 'Reply All'),
-      icon: (s, col) => <ReplyAll size={s} color={col} />,
+      icon: (s, col) => <DirectionalIcon><ReplyAll size={s} color={col} /></DirectionalIcon>,
       onPress: () => navigateCompose('replyAll'),
       available: true,
     },
     forward: {
       label: t('email_viewer.forward', 'Forward'),
-      icon: (s, col) => <Forward size={s} color={col} />,
+      icon: (s, col) => <DirectionalIcon><Forward size={s} color={col} /></DirectionalIcon>,
       onPress: () => navigateCompose('forward'),
       available: true,
     },
@@ -698,7 +699,7 @@ function EmailViewer({ route, navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <View style={styles.toolbarActions}>
           {relocatedActions.map((id) => {
@@ -823,7 +824,7 @@ function EmailViewer({ route, navigation }: Props) {
           {/* Bottom action bar */}
           <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 4) }]}>
             <BottomBarButton
-              icon={<ChevronLeft size={20} color={c.textMuted} />}
+              icon={<DirectionalIcon><ChevronLeft size={20} color={c.textMuted} /></DirectionalIcon>}
               label={t('email_viewer.previous', 'Prev')}
               onPress={prevEmail ? () => goToIndex(currentIndex - 1) : undefined}
               disabled={!prevEmail}
@@ -841,7 +842,7 @@ function EmailViewer({ route, navigation }: Props) {
               );
             })}
             <BottomBarButton
-              icon={<ChevronRight size={20} color={c.textMuted} />}
+              icon={<DirectionalIcon><ChevronRight size={20} color={c.textMuted} /></DirectionalIcon>}
               label={t('email_viewer.next', 'Next')}
               onPress={nextEmail ? () => goToIndex(currentIndex + 1) : undefined}
               disabled={!nextEmail}
@@ -1334,7 +1335,7 @@ function MoreMenuSheet({
               icon={<FolderInput size={18} color={c.textSecondary} />}
               label={t('email_viewer.move_to', 'Move to...')}
               onPress={onMove}
-              trailing={<ChevronRight size={16} color={c.textMuted} />}
+              trailing={<DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>}
             />
           )}
           {canRules && (
@@ -1342,7 +1343,7 @@ function MoreMenuSheet({
               icon={<Filter size={18} color={c.textSecondary} />}
               label={t('context_menu.rules.title', 'Rules')}
               onPress={onRules}
-              trailing={<ChevronRight size={16} color={c.textMuted} />}
+              trailing={<DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>}
             />
           )}
           {canMove && (
@@ -1350,7 +1351,7 @@ function MoreMenuSheet({
               icon={<Copy size={18} color={c.textSecondary} />}
               label={t('context_menu.copy_to', 'Copy to…')}
               onPress={onCopy}
-              trailing={<ChevronRight size={16} color={c.textMuted} />}
+              trailing={<DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>}
             />
           )}
           {canTag && (
@@ -1358,7 +1359,7 @@ function MoreMenuSheet({
               icon={<Tag size={18} color={c.textSecondary} />}
               label={t('email_viewer.set_tag', 'Set tag')}
               onPress={onTag}
-              trailing={<ChevronRight size={16} color={c.textMuted} />}
+              trailing={<DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>}
             />
           )}
           {showSpam && (
@@ -1384,7 +1385,7 @@ function MoreMenuSheet({
               icon={<UserRoundPlus size={18} color={c.textSecondary} />}
               label={t('email_viewer.sender_actions', 'Sender…')}
               onPress={onSenderActions}
-              trailing={<ChevronRight size={16} color={c.textMuted} />}
+              trailing={<DirectionalIcon><ChevronRight size={16} color={c.textMuted} /></DirectionalIcon>}
             />
           )}
           {canExport && (

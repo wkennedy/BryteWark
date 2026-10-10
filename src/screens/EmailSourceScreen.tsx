@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert,
 } from 'react-native';
@@ -74,7 +75,7 @@ export default function EmailSourceScreen({ route, navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {subject || t('email_viewer.email_source', 'Email Source')}
