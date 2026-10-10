@@ -12,6 +12,9 @@ import com.facebook.react.ReactHost
 import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlags
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsProvider
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
@@ -46,6 +49,15 @@ class MainApplication : Application(), ReactApplication {
       ReleaseLevel.STABLE
     }
     loadReactNative(this)
+    // Text measured at the old system font size is cached by its content, so
+    // after a font size change while the app runs, labels laid out again with
+    // the same text keep their old width and clip ("M…"). This flag keys the
+    // cache on the font scale and re-measures on a change. It is off in
+    // RN 0.81's stable set, which load() above just installed; keep that set
+    // and turn this one flag on.
+    if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
+      ReactNativeFeatureFlags.dangerouslyForceOverride(FontScaleLayoutFlags())
+    }
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
   }
 
@@ -53,4 +65,10 @@ class MainApplication : Application(), ReactApplication {
     super.onConfigurationChanged(newConfig)
     ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
   }
+}
+
+private class FontScaleLayoutFlags :
+    ReactNativeFeatureFlagsProvider by ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android(
+        fabricEnabled = true, bridgelessEnabled = true, turboModulesEnabled = true) {
+  override fun enableFontScaleChangesUpdatingLayout(): Boolean = true
 }
