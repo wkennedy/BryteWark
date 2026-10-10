@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { useColors } from '../theme/colors';
+import { useWebTextZoom } from '../theme/dynamic';
 import type { ThemePalette } from '../theme/tokens';
 import { buildEditorHtml, MIN_EDITOR_HEIGHT } from '../lib/editor-html';
 import { plainTextPasteHtml } from '../lib/plain-text-paste';
@@ -98,6 +99,7 @@ const RichTextEditor = React.forwardRef<RichTextEditorHandle, Props>(function Ri
 ) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
+  const textZoom = useWebTextZoom();
   const webViewRef = React.useRef<WebView>(null);
   const [height, setHeight] = React.useState(MIN_EDITOR_HEIGHT);
   const onChangeRef = React.useRef(onChange);
@@ -271,6 +273,7 @@ const RichTextEditor = React.forwardRef<RichTextEditorHandle, Props>(function Ri
         javaScriptEnabled
         domStorageEnabled={false}
         scrollEnabled={false}
+        textZoom={textZoom}
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
         keyboardDisplayRequiresUserAction={false}

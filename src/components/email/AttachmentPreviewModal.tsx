@@ -8,6 +8,7 @@ import { X, ExternalLink, Share2, Download } from 'lucide-react-native';
 import type { Email } from '../../api/types';
 import { spacing, radius, typography, componentSizes, fontPx, type ThemePalette } from '../../theme/tokens';
 import { useColors } from '../../theme/colors';
+import { useWebTextZoom } from '../../theme/dynamic';
 import { useLocaleStore } from '../../stores/locale-store';
 import EmailBodyView from '../EmailBodyView';
 import type { PreviewKind } from '../../lib/attachment-display';
@@ -53,6 +54,7 @@ export function AttachmentPreviewModal({
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
   const { width } = useWindowDimensions();
+  const textZoom = useWebTextZoom();
   // An image the platform can't decode would stay blank; fall back to the
   // external viewer instead. Keyed by URI so the next item starts clean.
   const [failedImageUri, setFailedImageUri] = React.useState<string | null>(null);
@@ -126,6 +128,7 @@ export function AttachmentPreviewModal({
               allowingReadAccessToURL={item.fileUri}
               style={styles.flex}
               javaScriptEnabled={false}
+              textZoom={textZoom}
               setSupportMultipleWindows={false}
               onShouldStartLoadWithRequest={(req) => req.url === item.fileUri}
             />

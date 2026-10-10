@@ -4,9 +4,9 @@
 // without a relaunch.
 
 import { useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, useWindowDimensions } from 'react-native';
 import { useSettingsStore } from '../stores/settings-store';
-import { applyFontScale, FONT_SCALE, typography, spacing as baseSpacing } from './tokens';
+import { applyFontScale, FONT_SCALE, typography, spacing as baseSpacing, webTextZoom } from './tokens';
 
 export type DensityKind = 'extra-compact' | 'compact' | 'regular' | 'comfortable';
 
@@ -44,6 +44,14 @@ export function syncFontScale(): () => void {
 export function useTypography() {
   const fontSize = useSettingsStore((s) => s.fontSize);
   return useMemo(() => ({ ...typography }), [fontSize]);
+}
+
+// The textZoom every WebView passes (see webTextZoom), live with the font
+// size setting and the OS font scale.
+export function useWebTextZoom(): number {
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const { fontScale } = useWindowDimensions();
+  return webTextZoom(fontScale, FONT_SCALE[fontSize] ?? 1);
 }
 
 export function useDensity() {
