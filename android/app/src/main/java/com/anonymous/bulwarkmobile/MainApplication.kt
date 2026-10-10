@@ -2,6 +2,7 @@ package com.anonymous.bulwarkmobile
 
 import android.app.Application
 import android.content.res.Configuration
+import android.util.Log
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -13,6 +14,8 @@ import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlags
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsOverrides_RNOSS_Canary_Android
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsOverrides_RNOSS_Experimental_Android
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsProvider
 
@@ -53,10 +56,16 @@ class MainApplication : Application(), ReactApplication {
     // after a font size change while the app runs, labels laid out again with
     // the same text keep their old width and clip ("M…"). This flag keys the
     // cache on the font scale and re-measures on a change. It is off in
-    // RN 0.81's stable set, which load() above just installed; keep that set
-    // and turn this one flag on.
+    // RN 0.81's flag sets; keep the set load() above just installed for this
+    // release level and turn this one flag on.
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
-      ReactNativeFeatureFlags.dangerouslyForceOverride(FontScaleLayoutFlags())
+      val accessed = ReactNativeFeatureFlags.dangerouslyForceOverride(
+          FontScaleLayoutFlags(releaseLevelFlags(DefaultNewArchitectureEntryPoint.releaseLevel)))
+      // Flags read before this point kept their old value; they are the same
+      // in both sets, but say which they were.
+      if (BuildConfig.DEBUG && accessed != null) {
+        Log.d("MainApplication", "feature flags read before the font scale override: $accessed")
+      }
     }
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
   }
@@ -67,8 +76,17 @@ class MainApplication : Application(), ReactApplication {
   }
 }
 
-private class FontScaleLayoutFlags :
-    ReactNativeFeatureFlagsProvider by ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android(
-        fabricEnabled = true, bridgelessEnabled = true, turboModulesEnabled = true) {
+// The flag set DefaultNewArchitectureEntryPoint.load() installs for a release
+// level (load() with no arguments enables Fabric, bridgeless and TurboModules).
+private fun releaseLevelFlags(level: ReleaseLevel): ReactNativeFeatureFlagsProvider =
+    when (level) {
+      ReleaseLevel.EXPERIMENTAL -> ReactNativeFeatureFlagsOverrides_RNOSS_Experimental_Android()
+      ReleaseLevel.CANARY -> ReactNativeFeatureFlagsOverrides_RNOSS_Canary_Android()
+      ReleaseLevel.STABLE -> ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android(
+          fabricEnabled = true, bridgelessEnabled = true, turboModulesEnabled = true)
+    }
+
+private class FontScaleLayoutFlags(base: ReactNativeFeatureFlagsProvider) :
+    ReactNativeFeatureFlagsProvider by base {
   override fun enableFontScaleChangesUpdatingLayout(): Boolean = true
 }

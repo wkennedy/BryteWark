@@ -46,7 +46,11 @@ function tsxFiles(dir: string): string[] {
   });
 }
 
-// Every <WebView> in the app, and whether it sets textZoom.
+// Every <WebView> in the app, and whether it sets textZoom. A static check:
+// it finds the JSX tag named WebView in App.tsx and src/**/*.tsx, so a
+// WebView rendered under another name (an alias, a wrapper component, a
+// library's own WebView) is not seen, and it only checks that the prop is
+// there, not that it is the useWebTextZoom value.
 function webViews(): Array<[string, boolean]> {
   const found: Array<[string, boolean]> = [];
   for (const path of [join(ROOT, 'App.tsx'), ...tsxFiles(join(ROOT, 'src'))]) {

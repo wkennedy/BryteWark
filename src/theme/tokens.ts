@@ -337,6 +337,8 @@ export const BODY_MAX_FONT_SCALE = 1.5;
 // Android WebView's textZoom (percent) for page text: the font size setting
 // (`appFactor`) times the OS font scale capped at BODY_MAX_FONT_SCALE, as
 // native body text gets. Left unset, WebView applies the OS scale uncapped.
+// Android only: iOS WKWebView ignores textZoom, so there the body follows
+// neither the cap nor the font size setting (an iOS follow-up).
 export function webTextZoom(osFontScale: number, appFactor: number): number {
   const os = Number.isFinite(osFontScale) && osFontScale > 0 ? osFontScale : 1;
   return Math.round(appFactor * Math.min(os, BODY_MAX_FONT_SCALE) * 100);
