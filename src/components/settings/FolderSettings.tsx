@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import {
-  Folder, Inbox, Send, FileText, Trash, ShieldAlert, Archive, Flag, Star, Mails,
+  Folder, Inbox, Send, FileText, Trash, Ban, Archive, Flag, Star, Mails,
   StickyNote, Clock, AlarmClock, Users, Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Share2,
 } from 'lucide-react-native';
 import { SettingsSection, Select } from './settings-section';
@@ -37,9 +37,10 @@ import { useAuthStore } from '../../stores/auth-store';
 import { MailboxShareSheet, canOfferMailboxShare } from '../MailboxShareSheet';
 import { createAfterDismiss } from '../../lib/after-dismiss';
 
+// Spam is the drawer's and the move sheet's ban sign here too.
 const ROLE_ICON: Record<string, any> = {
   inbox: Inbox, drafts: FileText, sent: Send, trash: Trash,
-  junk: ShieldAlert, spam: ShieldAlert, archive: Archive, important: Flag, flagged: Star,
+  junk: Ban, spam: Ban, archive: Archive, important: Flag, flagged: Star,
   all: Mails, memos: StickyNote, scheduled: Clock, snoozed: AlarmClock, shared: Users,
 };
 

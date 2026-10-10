@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { SettingsSection, SettingItem, RadioGroup, Select } from './settings-section';
 import { spacing, radius, typography, type ThemePalette } from '../../theme/tokens';
@@ -62,12 +62,27 @@ export function LanguageSettings() {
     { locale, timeZone: dateRegion.timeZone },
   );
 
+  // A language written the other way round only mirrors the layout after a
+  // restart (RN reads forceRTL at launch): say so as soon as it is picked,
+  // in the language picked, rather than only below the list.
+  const pickLocale = (code: LocaleCode | 'system') => {
+    const wasPending = useLocaleStore.getState().directionChangePending;
+    setOverride(code === 'system' ? null : code);
+    const { directionChangePending: pending, t: tr } = useLocaleStore.getState();
+    if (wasPending || !pending) return;
+    Alert.alert(
+      tr('settings.appearance.language.restart_title', 'Restart the app'),
+      tr('settings.appearance.language.restart_for_direction', 'Restart the app to apply the new text direction.'),
+      [{ text: tr('common.ok', 'OK') }],
+    );
+  };
+
   const renderRow = (code: LocaleCode | 'system', label: string, sublabel?: string) => {
     const active = selected === code;
     return (
       <Pressable
         key={code}
-        onPress={() => setOverride(code === 'system' ? null : (code as LocaleCode))}
+        onPress={() => pickLocale(code)}
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       >
         <View style={{ flex: 1 }}>
@@ -89,14 +104,7 @@ export function LanguageSettings() {
         title={t('settings.appearance.language.label', 'Language')}
         description={t('settings.appearance.language.description', 'Choose your preferred language')}
       >
-        <View style={styles.list}>
-          {renderRow(
-            'system',
-            `${t('settings.appearance.language.system_default', 'System default')} (${deviceLabel})`,
-          )}
-          <View style={styles.divider} />
-          {SUPPORTED_LOCALES.map((l) => renderRow(l.code, l.label))}
-        </View>
+        {/* Above the list, where it shows without scrolling. */}
         {directionChangePending && (
           <Text style={styles.hint}>
             {t(
@@ -105,6 +113,14 @@ export function LanguageSettings() {
             )}
           </Text>
         )}
+        <View style={styles.list}>
+          {renderRow(
+            'system',
+            `${t('settings.appearance.language.system_default', 'System default')} (${deviceLabel})`,
+          )}
+          <View style={styles.divider} />
+          {SUPPORTED_LOCALES.map((l) => renderRow(l.code, l.label))}
+        </View>
       </SettingsSection>
 
       <SettingsSection
@@ -205,7 +221,7 @@ function makeStyles(c: ThemePalette) {
   divider: { height: 1, backgroundColor: c.border, marginHorizontal: spacing.md },
   label: { ...typography.body, color: c.text },
   sublabel: { ...typography.caption, color: c.textMuted, marginTop: 2 },
-  hint: { ...typography.caption, color: c.warning, marginTop: spacing.sm },
+  hint: { ...typography.caption, color: c.warning, marginBottom: spacing.sm },
   previewBox: {
     marginTop: spacing.md,
     padding: spacing.md,

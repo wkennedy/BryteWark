@@ -21,10 +21,10 @@ describe('rtl-layout', () => {
   });
 
   it('moves the toggle thumb toward the start edge when off', () => {
-    expect(toggleThumbX(false, false)).toBe(4);
-    expect(toggleThumbX(true, false)).toBe(24);
-    expect(toggleThumbX(false, true)).toBe(-4);
-    expect(toggleThumbX(true, true)).toBe(-24);
+    expect(toggleThumbX(false, false)).toBe(3);
+    expect(toggleThumbX(true, false)).toBe(23);
+    expect(toggleThumbX(false, true)).toBe(-3);
+    expect(toggleThumbX(true, true)).toBe(-23);
   });
 
   it('mirrors a forward icon only in RTL', () => {

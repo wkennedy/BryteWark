@@ -45,7 +45,8 @@ export function drawerSafeEdges(rtl: boolean): ('top' | 'bottom' | 'left' | 'rig
  * the start edge, which is the right in RTL, so the offset points left there.
  */
 export function toggleThumbX(on: boolean, rtl: boolean): number {
-  const x = on ? 24 : 4;
+  // Measured inside the track's 1px outline: 4px from its outer edge.
+  const x = on ? 23 : 3;
   return rtl ? -x : x;
 }
 

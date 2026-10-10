@@ -345,7 +345,15 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
           <Text style={styles.headerTitle}>{tabLabel}</Text>
         </View>
 
-        <ScrollView ref={paneScrollRef} style={styles.scrollArea} contentContainerStyle={styles.detailContent}>
+        {/* A tap on a control while the keyboard is up (the tag form's
+            Parent Tag picker after typing a name) acts at once; a tap on
+            nothing still dismisses the keyboard. */}
+        <ScrollView
+          ref={paneScrollRef}
+          style={styles.scrollArea}
+          contentContainerStyle={styles.detailContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <View ref={paneContentRef}>
             <SearchHighlightContext.Provider value={searchHighlight}>
               {scopeBanner}
