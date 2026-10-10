@@ -51,6 +51,16 @@ class MainActivity : ReactActivity() {
     RecentsCover.onActivityFocusChanged(this, hasFocus)
   }
 
+  override fun onResume() {
+    super.onResume()
+    RecentsCover.onResume(this)
+  }
+
+  override fun onDestroy() {
+    RecentsCover.forget(this)
+    super.onDestroy()
+  }
+
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
    * rendering of the component.
