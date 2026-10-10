@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable, Alert, Modal, Platform,
 } from 'react-native';
@@ -308,7 +309,7 @@ export default function ScheduledScreen({ navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{t('sidebar.scheduled', 'Scheduled')}</Text>
         <View style={styles.headerBtn} />

@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../../components/DirectionalIcon';
 import {
   View,
   Text,
@@ -59,7 +60,7 @@ export default function LoginShell({
               accessibilityRole="button"
               accessibilityLabel={t('common.back', 'Back')}
             >
-              <ArrowLeft size={22} color={c.textSecondary} />
+              <DirectionalIcon><ArrowLeft size={22} color={c.textSecondary} /></DirectionalIcon>
             </Pressable>
           ) : (
             <View style={styles.headerButton} />

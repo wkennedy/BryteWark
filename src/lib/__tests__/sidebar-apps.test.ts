@@ -6,6 +6,7 @@ vi.mock('expo-web-browser', () => ({ openBrowserAsync, maybeCompleteAuthSession:
 import {
   sanitizeSidebarAppUrl, selectMobileSidebarApps, openSidebarApp,
 } from '../sidebar-apps';
+import { sidebarAppUrlProblem } from '../sidebar-app-url';
 import type { SidebarApp } from '../../stores/settings-store';
 
 const app = (over: Partial<SidebarApp> = {}): SidebarApp => ({
@@ -79,6 +80,19 @@ describe('sanitizeSidebarAppUrl', () => {
     expect(sanitizeSidebarAppUrl(42)).toBeNull();
     expect(sanitizeSidebarAppUrl('')).toBeNull();
     expect(sanitizeSidebarAppUrl('https://example.com/' + 'a'.repeat(2048))).toBeNull();
+  });
+});
+
+describe('sidebarAppUrlProblem', () => {
+  it('names credentials apart from a missing https://, so the form can say which', () => {
+    expect(sidebarAppUrlProblem('https://user:pw@example.com')).toBe('credentials');
+    expect(sidebarAppUrlProblem('HTTPS://user@example.com/x')).toBe('credentials');
+    expect(sidebarAppUrlProblem('https://@example.com')).toBe('credentials');
+    expect(sidebarAppUrlProblem('http://example.com')).toBe('invalid');
+    expect(sidebarAppUrlProblem('https://exa mple.com')).toBe('invalid');
+    // An @ after the host is a path, not credentials.
+    expect(sidebarAppUrlProblem('https://example.com/@me')).toBeNull();
+    expect(sidebarAppUrlProblem('https://example.com')).toBeNull();
   });
 });
 

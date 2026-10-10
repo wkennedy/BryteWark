@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Linking, Alert, Image, Share,
   Animated, Dimensions, Easing, Modal,
@@ -32,6 +33,7 @@ import AddressBookPickerSheet from '../components/contacts/AddressBookPickerShee
 import { spacing, radius, typography, fontPx, type ThemePalette } from '../theme/tokens';
 import { useColors } from '../theme/colors';
 import { useLocaleStore, type TranslateFn } from '../stores/locale-store';
+import { ltrIsolate } from '../lib/display-text';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ContactDetail'>;
 type Route = RouteProp<RootStackParamList, 'ContactDetail'>;
@@ -157,7 +159,7 @@ export default function ContactDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('common.back', 'Back')}
           >
-            <ArrowLeft size={22} color={c.text} />
+            <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
           </Pressable>
           <Text style={styles.headerTitle}>{t('contacts.contact', 'Contact')}</Text>
         </View>
@@ -363,7 +365,7 @@ export default function ContactDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {isGroup(contact) ? t('contacts.group', 'Group') : t('contacts.contact', 'Contact')}
@@ -463,7 +465,7 @@ export default function ContactDetailScreen() {
                         onLongPress={() => shareValue(p.number)}
                         style={{ flex: 1 }}
                       >
-                        <Text style={styles.linkText}>{p.number}</Text>
+                        <Text style={styles.linkText}>{ltrIsolate(p.number)}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => openSms(p.number)}

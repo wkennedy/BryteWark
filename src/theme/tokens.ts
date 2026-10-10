@@ -334,6 +334,16 @@ export const CHROME_MAX_FONT_SCALE = 1.3;
 // TextInput; a nested Text inherits its parent's cap. Keep the two in step.
 export const BODY_MAX_FONT_SCALE = 1.5;
 
+// Android WebView's textZoom (percent) for page text: the font size setting
+// (`appFactor`) times the OS font scale capped at BODY_MAX_FONT_SCALE, as
+// native body text gets. Left unset, WebView applies the OS scale uncapped.
+// Android only: iOS WKWebView ignores textZoom, so there the body follows
+// neither the cap nor the font size setting (an iOS follow-up).
+export function webTextZoom(osFontScale: number, appFactor: number): number {
+  const os = Number.isFinite(osFontScale) && osFontScale > 0 ? osFontScale : 1;
+  return Math.round(appFactor * Math.min(os, BODY_MAX_FONT_SCALE) * 100);
+}
+
 // The Appearance font size setting, as webmail's root font size (14px, 16px
 // or 18px over a 16px base).
 export const FONT_SCALE = { small: 0.875, medium: 1, large: 1.125 } as const;

@@ -267,6 +267,10 @@ function MainTabsNavigator({ navigation }: NativeStackScreenProps<RootStackParam
   const hasFiles = useHasFiles();
   const disabledTabStyle = { opacity: 0.4 } as const;
   const t = useLocaleStore((state) => state.t);
+  // `t` keeps its identity across languages: subscribe to the language too,
+  // or the labels keep the one this rendered with first (the device's,
+  // before the chosen language is read at launch).
+  useLocaleStore((state) => state.locale);
   // The webmail's navigation names; a tab the server lacks says so.
   const tabLabels = {
     mail: t('sidebar.mail', 'Mail'),

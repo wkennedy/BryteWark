@@ -129,6 +129,7 @@
     "create": "יצירה",
     "dismiss": "סגירה",
     "done": "סיום",
+    "ok": "אישור",
     "open": "פתיחה",
     "open_link_message": "פעולה זו תפתח את {host} מחוץ לאפליקציה.",
     "open_link_title": "לפתוח את הקישור?",
@@ -618,6 +619,7 @@
     "appearance": {
       "language": {
         "restart_for_direction": "הפעל מחדש את האפליקציה כדי להחיל את כיוון הטקסט החדש.",
+        "restart_title": "נדרשת הפעלה מחדש",
         "system_default": "ברירת המחדל של המערכת"
       },
       "toolbar_labels": {

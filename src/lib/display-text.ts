@@ -52,3 +52,12 @@ export function plainStoredText(value: string | null | undefined, max: number): 
     .trim();
   return Array.from(text).length > max ? null : text;
 }
+
+/**
+ * Text that always reads left to right, such as a phone number, kept in its
+ * own order inside a right-to-left layout (Arabic would otherwise show
+ * "+15083986625" as "15083986625+"). Wrapped in a left-to-right isolate.
+ */
+export function ltrIsolate(value: string | null | undefined): string {
+  return value ? `\u2066${value}\u2069` : '';
+}

@@ -58,6 +58,15 @@ export const SCROLL_WINDOW_MAX: Record<ScrollViewMode, number> = {
   day: 180,
 };
 
+/**
+ * Rows a grid keeps above the week or month a navigation scrolls to, while
+ * the window can still grow. The month list widens its start once it comes
+ * within half its six-row viewport (3 rows) of the top, and the week grid
+ * within one week; the rows that adds cancel a running scroll animation
+ * where it is, so a step back must land past that.
+ */
+export const JUMP_ROOM_ROWS = { month: 4, week: 1 } as const;
+
 /** Days loaded after the base range before the user scrolls anywhere. */
 const INITIAL_AFTER: Record<ScrollViewMode, number> = {
   month: SCROLL_WINDOW_STEP,
@@ -174,9 +183,10 @@ export function scrollWindowContains(
 /**
  * Where a navigation to `date` leaves the window: unchanged when the target
  * is already inside it (the view just scrolls there), otherwise a fresh
- * window at the target. A grid target also needs a row of room above it
- * while the window can still grow: scrolled to row 0, the list reaches its
- * start edge and prepends rows while it is still settling on the target.
+ * window at the target. A grid target also needs room above it while the
+ * window can still grow (JUMP_ROOM_ROWS): scrolled too near the top, the
+ * list reaches its start edge and prepends rows while it is still settling
+ * on the target, which stops the scroll short.
  * That room is grown on the same anchor, so the list keeps its key and
  * isn't remounted (a step back a month just scrolls).
  */
@@ -190,7 +200,7 @@ export function windowStateForJump(
   const loaded = computeScrollWindow(current, opts);
   if (!scrollWindowContains(loaded, mode, date, opts)) return freshScrollWindowState(mode, date);
   if (mode !== 'month' && mode !== 'week') return current;
-  const rowAbove = subDays(baseRange(mode, date, opts).start, 7).getTime();
+  const rowAbove = subDays(baseRange(mode, date, opts).start, 7 * JUMP_ROOM_ROWS[mode]).getTime();
   let next = current;
   let window = loaded;
   while (window.canExtendStart && rowAbove < window.start.getTime()) {

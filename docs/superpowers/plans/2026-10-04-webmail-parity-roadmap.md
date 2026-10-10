@@ -834,3 +834,22 @@ Left open:
 - **Sender-check limits that still hold:** all of Follow-up cleanup 2's.
 - **Upstream requests:** all of Follow-up cleanup 2's still stand.
 - **Still open from before:** shared-account sending, and the 8 blocked parity items.
+
+## Device checks 2 (2026-10-10)
+
+Run on the x86_64 emulator only (the user's choice), signed in to the real account, with no server changes. Results and fixes are on `fix/device-checks-2`; see CHANGES.md.
+
+**Passed on the emulator:** the 1.5x body text cap in the list and in messages; live system font size changes; the inbox search box and settings row wrapping; date format region and app-wide time zone; Jalali month grid and stepping; right-to-left drawers, arrows, swipe bands, toggles and message threads; block screenshots and hide in recent apps; sidebar apps in a Custom Tab; settings search; About; sender checks on real Gmail and Google mail (SPF, DKIM and DMARC pass, no false warning); the "sent as" badge on Sent; folder reorder UI (not saved), folder icons, the colourful-icons toggle; tag visibility, nesting, collapse and reorder; folder links warm, cold, bare `/mail` and unknown folders; the folder share sheet (nothing granted).
+
+**Not checked (no data, or it would change the server):** the month view's event chips (no events in range); trusted-sender images (no message with remote images); calendar invitations and counter-proposals (none in the mailbox); account switching (one account); a saved folder reorder; granting a share; the unreadable-settings prompt (needs a corrupt or refused settings read); SSO sign-out (no external provider); everything on iOS and on the S24+.
+
+**Left open:**
+- About 90 components read only `t` from the locale store and can show the old language until they re-render; a central fix (give `t` a new identity per locale) needs an audit of the ~50 hooks that list `t` as a dependency.
+- New strings are English-only outside en (restart title also in ar, fa, he).
+- The week view (TimeGridScrollView) has the same rows-added-above pattern the month view had; not seen failing.
+- Send and LogOut icons are not in the directional-icon guard.
+- With "Hide in recent apps" on, the notification shade, system dialogs and the share sheet also blank the app until focus returns; a sheet opening while covered can show for up to 300 ms.
+- The RecentsCover and the font-scale flag override use React Native internals (`ReactModalHostView.dialog`, `dangerouslyForceOverride`); recheck on the next React Native upgrade.
+- A live system font size change sends the app back to the Inbox (the activity is recreated).
+- Drafts and Trash icons differ slightly between the drawer and folder settings.
+

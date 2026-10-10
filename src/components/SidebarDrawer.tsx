@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from './DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Modal, TextInput, Alert,
   Animated, Dimensions, Easing, ActivityIndicator,
@@ -6,7 +7,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isLayoutRTL } from '../i18n';
-import { drawerClosedX, drawerSafeEdges, forwardIconStyle } from '../lib/rtl-layout';
+import { drawerClosedX, drawerSafeEdges } from '../lib/rtl-layout';
 import {
   Inbox, Send, File as FileIcon, Trash2, Ban, Archive, Star,
   Folder, FolderOpen, ChevronDown, ChevronRight, X, Settings, LogOut, Check, Plus,
@@ -189,7 +190,7 @@ function SidebarRow({
             {isExpanded ? (
               <ChevronDown size={12} color={c.textMuted} />
             ) : (
-              <ChevronRight size={12} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+              <DirectionalIcon><ChevronRight size={12} color={c.textMuted} /></DirectionalIcon>
             )}
           </Pressable>
         ) : (
@@ -884,11 +885,11 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
               {busy ? (
                 <ActivityIndicator size="small" color={c.textMuted} />
               ) : (
-                <ChevronDown
-                  size={16}
-                  color={c.textMuted}
-                  style={accountMenuOpen ? styles.accountChevronOpen : undefined}
-                />
+                // The turn goes on a View: on the icon, react-native-svg
+                // would also turn the drawing about its corner, off its canvas.
+                <View style={accountMenuOpen ? styles.accountChevronOpen : undefined}>
+                  <ChevronDown size={16} color={c.textMuted} />
+                </View>
               )}
             </Pressable>
           </View>
@@ -1104,7 +1105,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                   {unifiedExpanded ? (
                     <ChevronDown size={14} color={c.textMuted} />
                   ) : (
-                    <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                    <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
                   )}
                   <Text style={styles.sectionHeaderText}>{t('sidebar.unified_mailbox', 'Unified mailbox')}</Text>
                 </Pressable>
@@ -1159,7 +1160,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
               {foldersExpanded ? (
                 <ChevronDown size={14} color={c.textMuted} />
               ) : (
-                <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
               )}
               <Text style={styles.sectionHeaderText}>{t('sidebar.folders', 'Folders')}</Text>
               <View style={{ flex: 1 }} />
@@ -1236,7 +1237,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                   {tagsExpanded ? (
                     <ChevronDown size={14} color={c.textMuted} />
                   ) : (
-                    <ChevronRight size={14} color={c.textMuted} style={forwardIconStyle(isLayoutRTL())} />
+                    <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
                   )}
                   <Text style={styles.sectionHeaderText}>{t('sidebar.tags', 'Tags')}</Text>
                 </Pressable>

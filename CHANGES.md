@@ -4,7 +4,20 @@ The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Follow-up cleanup 3 (unmerged)
+## Device checks 2 (unmerged)
+
+Found on the x86_64 emulator (device check pass 2) and fixed on `fix/device-checks-2`.
+
+### Fixes
+- The message body, the compose editor and previews cap at 1.5 times the system font size, like the rest of the text, and follow the app's font size setting (81511b9).
+- Text is measured again when the system font size changes while the app is open, so tab labels, the badge and settings text no longer clip until a restart (e6eb984, 9d3b8c1).
+- With "Hide in recent apps" on, the app's card is blank even when recents is opened straight from the app or from an open sheet, a sheet or alert that opens while the app is covered stays hidden, and closed sheets are no longer held on to (b0939c5, 2008a1f, caa9a8b).
+- The month calendar steps back exactly one month per tap, in Persian and every language (ecc1771).
+- In right-to-left languages: every back arrow, forward chevron, previous/next, reply/forward and undo/redo icon is mirrored, the Settings chevrons show, the calendar arrows point outward, a message thread shows the message you opened instead of a blank page, and a contact's phone number keeps its order (dcae4be, 56ae618, 8a9f144, 6f1e5cf, 16e3270).
+- Picking a language that changes the text direction asks for a restart, and the tab names follow the chosen language (27a4d07, f813e46, 19d4681).
+- Smaller fixes: a clear message for a sidebar app address with a user name and password, share sheets that say when nobody else is on the server or everyone already has access, one spam icon in the drawer and folder settings, the parent tag picker opening on the first tap, and an off switch outlined so it shows (0018cbe, 27a4d07, 19d4681).
+
+## Follow-up cleanup 3 (#19)
 
 Branch `cleanup/follow-ups-3`, everything after b46744e.
 

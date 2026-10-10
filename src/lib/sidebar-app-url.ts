@@ -36,3 +36,15 @@ export function sanitizeSidebarAppUrl(raw: unknown): string | null {
   }
   return `https://${rest}`;
 }
+
+const CREDENTIALS_RE = /^https:\/\/[^/?#]*@/i;
+
+/**
+ * Why the form refuses a URL: `credentials` for an https address with a
+ * user name or password before the host, `invalid` for anything else the
+ * check refuses, null when it passes.
+ */
+export function sidebarAppUrlProblem(raw: string): 'credentials' | 'invalid' | null {
+  if (sanitizeSidebarAppUrl(raw) !== null) return null;
+  return CREDENTIALS_RE.test(raw) ? 'credentials' : 'invalid';
+}

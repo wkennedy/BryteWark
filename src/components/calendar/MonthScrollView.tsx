@@ -41,6 +41,8 @@ type WeekStart = 0 | 1 | 6;
 const VISIBLE_ROWS = 6;
 /** Navigation closer than this many rows scrolls smoothly; further jumps. */
 const SMOOTH_SCROLL_ROWS = 12;
+/** Longest a navigation waits for rows added above to be laid out. */
+const PENDING_SCROLL_FALLBACK_MS = 300;
 
 interface MonthScrollViewProps {
   /** The day the user navigated to; its month's first week is scrolled to the top. */
@@ -192,19 +194,50 @@ function MonthScrollViewInner({
     // row height, and the sampling and navigation read this one.
     offsetRef.current = mount.offset;
   }
-  React.useEffect(() => {
-    if (handledNonceRef.current === focus.nonce) return;
-    handledNonceRef.current = focus.nonce;
+  // Scrolls the focused month's first week to the top, from what is
+  // rendered when it runs.
+  const scrollToFocusRef = React.useRef(() => {});
+  scrollToFocusRef.current = () => {
     const row = monthFocusRow(window, focus.date, weeks.length, opts);
     const currentRow = Math.round(offsetRef.current / rowHeight);
-    const key = monthKeyOf(focus.date, calendar);
-    activeMonthRef.current = key;
-    setActiveMonth(key);
     listRef.current?.scrollToIndex({
       index: row,
       animated: Math.abs(row - currentRow) <= SMOOTH_SCROLL_ROWS,
     });
-  }, [focus, window, weeks.length, opts, rowHeight, calendar]);
+  };
+  // A step back can widen the window at the top in the same update. The
+  // rows added above move the list natively (maintainVisibleContentPosition),
+  // which cancels a scroll already under way and can run after it: the grid
+  // would stay on the month you left. So that scroll waits until the new
+  // rows are laid out (the content size changes) and a frame has passed.
+  const windowStartRef = React.useRef(window.start.getTime());
+  const pendingScrollRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushPendingScroll = React.useCallback(() => {
+    if (pendingScrollRef.current === null) return;
+    clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
+    requestAnimationFrame(() => scrollToFocusRef.current());
+  }, []);
+  React.useEffect(() => () => {
+    if (pendingScrollRef.current !== null) clearTimeout(pendingScrollRef.current);
+  }, []);
+  React.useEffect(() => {
+    const grewAtTop = window.start.getTime() < windowStartRef.current;
+    windowStartRef.current = window.start.getTime();
+    if (handledNonceRef.current === focus.nonce) return;
+    handledNonceRef.current = focus.nonce;
+    const key = monthKeyOf(focus.date, calendar);
+    activeMonthRef.current = key;
+    setActiveMonth(key);
+    if (pendingScrollRef.current !== null) clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
+    if (!grewAtTop) {
+      scrollToFocusRef.current();
+      return;
+    }
+    // Should the content size not report, scroll anyway.
+    pendingScrollRef.current = setTimeout(flushPendingScroll, PENDING_SCROLL_FALLBACK_MS);
+  }, [focus, window, calendar, flushPendingScroll]);
 
   const selectedKey = dayKey(selectedDate);
   // Today on a clock in the calendar's time zone.
@@ -286,6 +319,7 @@ function MonthScrollViewInner({
         onEndReached={onExtendEnd}
         onEndReachedThreshold={0.5}
         onScroll={handleScroll}
+        onContentSizeChange={flushPendingScroll}
         scrollEventThrottle={32}
         snapToInterval={rowHeight}
         decelerationRate="fast"

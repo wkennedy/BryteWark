@@ -45,7 +45,8 @@ export function drawerSafeEdges(rtl: boolean): ('top' | 'bottom' | 'left' | 'rig
  * the start edge, which is the right in RTL, so the offset points left there.
  */
 export function toggleThumbX(on: boolean, rtl: boolean): number {
-  const x = on ? 24 : 4;
+  // Measured inside the track's 1px outline: 4px from its outer edge.
+  const x = on ? 23 : 3;
   return rtl ? -x : x;
 }
 
@@ -53,7 +54,20 @@ export function toggleThumbX(on: boolean, rtl: boolean): number {
  * Mirrors an icon that points the way the reader goes: a "go into" chevron
  * or a back arrow. Lucide draws them for left-to-right, and RN does not flip
  * icons under RTL, so a forward chevron would point back at the reader.
+ * Put it on a View around the icon, never on the icon: react-native-svg
+ * also applies an Svg's style transform to the drawing, about its corner,
+ * which flips the icon off its own canvas and leaves it blank.
  */
 export function forwardIconStyle(rtl: boolean): { transform: [{ scaleX: -1 }] } | undefined {
   return rtl ? { transform: [{ scaleX: -1 }] } : undefined;
+}
+
+/**
+ * A horizontal list's scroll position measured from its start edge: the
+ * left in LTR, the right in RTL. Android reports `contentOffset.x` from the
+ * left in both, while FlatList lays a right-to-left list out from the right
+ * and takes `scrollToOffset` from the start edge.
+ */
+export function startEdgeOffset(x: number, contentWidth: number, viewportWidth: number, rtl: boolean): number {
+  return rtl ? contentWidth - (x + viewportWidth) : x;
 }

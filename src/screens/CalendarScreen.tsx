@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   Alert,
   AppState,
@@ -1221,7 +1222,8 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('calendar.nav_prev', 'Previous')}
         >
-          <ChevronLeft size={20} color={c.text} />
+          {/* Back and forward point the way the reader goes. */}
+          <DirectionalIcon><ChevronLeft size={20} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Button variant="outline" size="sm" onPress={goToday}>
           {t('calendar.views.today', 'Today')}
@@ -1233,7 +1235,7 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('calendar.nav_next', 'Next')}
         >
-          <ChevronRight size={20} color={c.text} />
+          <DirectionalIcon><ChevronRight size={20} color={c.text} /></DirectionalIcon>
         </Pressable>
       </View>
 

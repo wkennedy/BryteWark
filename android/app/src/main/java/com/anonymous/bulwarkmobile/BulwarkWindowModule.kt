@@ -19,6 +19,9 @@ import com.facebook.react.bridge.UiThreadUtil
  *
  * The protection flags are saved on every change, so MainActivity applies
  * them before the first frame of a cold start, before JS has hydrated.
+ *
+ * Hiding the recents preview also needs RecentsCover, for recents opened
+ * straight from the app.
  */
 class BulwarkWindowModule(reactContext: ReactApplicationContext)
     : ReactContextBaseJavaModule(reactContext) {
@@ -37,7 +40,10 @@ class BulwarkWindowModule(reactContext: ReactApplicationContext)
     @ReactMethod
     fun setRecentsHidden(enabled: Boolean) {
         prefs(reactApplicationContext).edit().putBoolean(PREF_RECENTS_HIDDEN, enabled).commit()
-        onActivity { applyRecentsHidden(it, enabled) }
+        onActivity {
+            applyRecentsHidden(it, enabled)
+            if (!enabled) RecentsCover.uncover(it)
+        }
     }
 
     @ReactMethod
@@ -79,6 +85,16 @@ class BulwarkWindowModule(reactContext: ReactApplicationContext)
                 applyBarsAppearance(activity, prefs.getBoolean(PREF_LIGHT_BARS, false))
             }
         }
+
+        /** Hide in recent apps is on, and this Android can do it. */
+        fun isRecentsHidden(activity: Activity): Boolean =
+            supportsRecentsHiding() &&
+                !activity.isInMultiWindowMode &&
+                prefs(activity).getBoolean(PREF_RECENTS_HIDDEN, false)
+
+        /** The app's background is light, as the bar icons last said. */
+        fun isLightBackground(context: Context): Boolean =
+            prefs(context).getBoolean(PREF_LIGHT_BARS, false)
 
         private fun applyBarsAppearance(activity: Activity, lightBackground: Boolean) {
             val window = activity.window

@@ -21,6 +21,7 @@ import { useContactsStore } from '../stores/contacts-store';
 import { useLocaleStore } from '../stores/locale-store';
 import { spacing, typography, type ThemePalette } from '../theme/tokens';
 import { useColors, useResolvedTheme } from '../theme/colors';
+import { useWebTextZoom } from '../theme/dynamic';
 import type { RootStackParamList } from '../navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -601,6 +602,8 @@ export default function EmailBodyView({
   // had the last time it was shown, else (see `fill`) an estimate. Never a
   // fixed strip that then grows in steps.
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Page text at the font size setting and the capped OS scale.
+  const textZoom = useWebTextZoom();
   const heightKey = `${jmapAccountId ?? ''}|${email.id}`;
   const [measured, setMeasured] = React.useState<{ key: string; height: number } | null>(null);
   const knownHeight = measured?.key === heightKey
@@ -826,6 +829,7 @@ export default function EmailBodyView({
             }, 50);
           }}
           scrollEnabled={false}
+          textZoom={textZoom}
           // Native Android zoom would scale the viewport inside the fixed-size
           // container; pinch zoom is implemented in the page instead.
           setBuiltInZoomControls={false}

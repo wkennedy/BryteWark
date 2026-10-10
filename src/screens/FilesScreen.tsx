@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   ActivityIndicator,
   Alert,
@@ -782,7 +783,7 @@ export default function FilesScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('common.back', 'Back')}
               >
-                <ChevronLeft size={22} color={c.text} />
+                <DirectionalIcon><ChevronLeft size={22} color={c.text} /></DirectionalIcon>
               </Pressable>
             ) : null}
             <Text style={styles.title} numberOfLines={1}>

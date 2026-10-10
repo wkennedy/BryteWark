@@ -8,6 +8,7 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.facebook.react.uimanager.DisplayMetricsHolder
 
 import expo.modules.ReactActivityDelegateWrapper
 
@@ -21,6 +22,12 @@ class MainActivity : ReactActivity() {
     // not hydrated the settings yet.
     BulwarkWindowModule.applyPersisted(this)
     ShareIntentStore.rewriteSendToAsView(intent)
+    // A system font size change recreates this activity, and Android gives
+    // the app new DisplayMetrics for it. React Native keeps converting text
+    // sizes with the metrics it saw first, so after a change back down, text
+    // drew at the old size in boxes measured for the new one. Point it at the
+    // current metrics before the new surface lays out.
+    DisplayMetricsHolder.initDisplayMetrics(applicationContext)
     super.onCreate(null)
     NotificationTapStore.captureFromIntent(intent)
     ShareIntentStore.captureFromIntent(intent, contentResolver)
@@ -35,6 +42,23 @@ class MainActivity : ReactActivity() {
     }
     val payload = NotificationTapStore.captureFromIntent(intent) ?: return
     BulwarkFcmModule.emit("fcm:notificationTap", payload.toMap())
+  }
+
+  // Hide in recent apps: recents opened from the app shows its live window,
+  // so cover it while no window of the app has focus (RecentsCover).
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    RecentsCover.onActivityFocusChanged(this, hasFocus)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    RecentsCover.onResume(this)
+  }
+
+  override fun onDestroy() {
+    RecentsCover.forget(this)
+    super.onDestroy()
   }
 
   /**

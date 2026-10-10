@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Modal, Animated, Dimensions, Easing, TextInput, Alert,
 } from 'react-native';
@@ -340,7 +341,7 @@ function SectionHeader({
       {expanded ? (
         <ChevronDown size={14} color={c.textMuted} />
       ) : (
-        <ChevronRight size={14} color={c.textMuted} />
+        <DirectionalIcon><ChevronRight size={14} color={c.textMuted} /></DirectionalIcon>
       )}
       {icon}
       <Text style={styles.sectionHeaderText} numberOfLines={1}>{label}</Text>

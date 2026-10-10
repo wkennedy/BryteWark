@@ -9,6 +9,7 @@ import Button from '../Button';
 import RichTextEditor, { type RichTextEditorHandle } from '../RichTextEditor';
 import { spacing, radius, typography, fontPx, type ThemePalette } from '../../theme/tokens';
 import { useColors } from '../../theme/colors';
+import { useWebTextZoom } from '../../theme/dynamic';
 import { useAuthStore } from '../../stores/auth-store';
 import { useVacationStore } from '../../stores/vacation-store';
 import { useManagedAccountStore } from '../../stores/managed-account-store';
@@ -44,6 +45,7 @@ import {
 
 export function VacationSettings() {
   const c = useColors();
+  const textZoom = useWebTextZoom();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
   const store = useVacationStore();
@@ -431,6 +433,7 @@ export function VacationSettings() {
                   source={{ html: previewHtml }}
                   style={styles.previewWeb}
                   scrollEnabled={false}
+                  textZoom={textZoom}
                   javaScriptEnabled={false}
                   // Links in the preview must not navigate the WebView away.
                   onShouldStartLoadWithRequest={(req) => req.url === 'about:blank' || req.url.startsWith('data:')}

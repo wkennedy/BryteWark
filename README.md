@@ -146,6 +146,9 @@ For iOS builds and TestFlight distribution see [docs/ios-release.md](docs/ios-re
 `android/` is committed and edited by hand. It holds code that a regenerated project would not have:
 - `ShareIntentStore` and `NotificationTapStore`, which `MainActivity` calls;
 - `BulwarkWindowModule` (screen protection and system bar colours), which `MainActivity.onCreate` applies before the first frame;
+- `RecentsCover`, which `MainActivity.onWindowFocusChanged` drives: with Hide in recent apps on, it covers the app's windows while none has focus, since recents opened from the app shows the live window;
+- the `DisplayMetricsHolder.initDisplayMetrics` call in `MainActivity.onCreate`, so text is sized with the current metrics after a system font size change;
+- the feature flag override in `MainApplication.onCreate` that turns on `enableFontScaleChangesUpdatingLayout`, so text is measured again after a system font size change;
 - `res/values/styles.xml` (`enforceNavigationBarContrast` is false).
 
 Never run `expo prebuild --clean`: it regenerates `android/` and silently drops these changes. Make native changes in `android/` directly.

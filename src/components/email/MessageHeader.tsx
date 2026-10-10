@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../DirectionalIcon';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import {
   Star, ChevronDown, ChevronUp, Reply, Forward, ShieldCheck, ShieldAlert, ShieldQuestion, Lock, AlertTriangle,
@@ -227,13 +228,13 @@ export function MessageHeader({ email, identities, headerInfo: info, onToggleSta
           })}
           {answered && (
             <View style={styles.badge}>
-              <Reply size={11} color={c.textMuted} />
+              <DirectionalIcon><Reply size={11} color={c.textMuted} /></DirectionalIcon>
               <Text style={styles.badgeText}>{t('email_viewer.replied', 'Replied')}</Text>
             </View>
           )}
           {forwarded && (
             <View style={styles.badge}>
-              <Forward size={11} color={c.textMuted} />
+              <DirectionalIcon><Forward size={11} color={c.textMuted} /></DirectionalIcon>
               <Text style={styles.badgeText}>{t('email_viewer.forwarded', 'Forwarded')}</Text>
             </View>
           )}

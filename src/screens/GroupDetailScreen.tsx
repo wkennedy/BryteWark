@@ -1,4 +1,5 @@
 import React from 'react';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import {
   View, Text, StyleSheet, Pressable, FlatList, Alert,
 } from 'react-native';
@@ -66,7 +67,7 @@ export default function GroupDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('common.back', 'Back')}
           >
-            <ArrowLeft size={22} color={c.text} />
+            <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
           </Pressable>
           <Text style={styles.headerTitle}>{t('contacts.group', 'Group')}</Text>
         </View>
@@ -139,7 +140,7 @@ export default function GroupDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('common.back', 'Back')}
         >
-          <ArrowLeft size={22} color={c.text} />
+          <DirectionalIcon><ArrowLeft size={22} color={c.text} /></DirectionalIcon>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{name}</Text>
         <View style={styles.headerActions}>
