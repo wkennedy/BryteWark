@@ -80,17 +80,24 @@ describe('QuickReplyBox on a shared-account message', () => {
     expect(opts.draftsMailboxId).toBe('own-drafts');
     expect(opts.accountId.accountId).toBe('c');
     expect(jmapClient.undoSendHold).toHaveBeenCalledWith(30, 'c');
-    const [ids, , scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
     expect(ids).toEqual(['m1']);
+    expect(keywords).toEqual({ $answered: true });
     expect(scope.accountId).toBe('f');
+    expect(scope.gen).toBe(opts.accountId.gen);
     expect(useSendUndoStore.getState().pending?.accountId).toBe('c');
   });
 
   it('queues offline against the own account, replying to the message account', async () => {
     useNetworkStore.setState({ online: false } as never);
-    const enqueue = vi.spyOn(useSendQueueStore.getState(), 'enqueue').mockResolvedValue(undefined as never);
+    const original = useSendQueueStore.getState().enqueue;
+    const enqueue = vi.fn(async (_row: unknown) => undefined);
     useSendQueueStore.setState({ enqueue } as never);
-    await pressSend();
+    try {
+      await pressSend();
+    } finally {
+      useSendQueueStore.setState({ enqueue: original } as never);
+    }
     const row = enqueue.mock.calls[0][0] as any;
     expect(row.jmapAccountId).toBe('c');
     expect(row.replyTo.jmapAccountId).toBe('f');

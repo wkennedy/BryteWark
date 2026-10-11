@@ -62,14 +62,24 @@ beforeEach(() => {
 });
 
 describe('UnsubscribeBanner mailto on a shared-account message', () => {
-  it('sends from the own account with the own Sent and Drafts', async () => {
-    const list = { listUnsubscribe: { preferred: 'mailto', mailto: 'mailto:unsub@news.example' } } as never;
-    const view = renderComponent(UnsubscribeBanner, { email, list, messageKey: 'k1', jmapAccountId: 'f' }, { effects: true });
+  const list = { listUnsubscribe: { preferred: 'mailto', mailto: 'mailto:unsub@news.example' } } as never;
+  const confirmUnsubscribe = async (appAccountId: string) => {
+    const view = renderComponent(UnsubscribeBanner, { email, list, messageKey: 'k1', appAccountId }, { effects: true });
     await new Promise((r) => setTimeout(r, 0));
+    // The unsubscribe button: the one pressable that is not the labelled dismiss.
     findElement(view.tree(), (p) => typeof p.onPress === 'function' && p.hitSlop === 8 && !p.accessibilityLabel)!.props.onPress();
     const buttons = vi.mocked(Alert.alert).mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
     buttons.find((b) => b.onPress)!.onPress!();
     await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it('is refused once another account is shown', async () => {
+    await confirmUnsubscribe('app2');
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('sends from the own account with the own Sent and Drafts', async () => {
+    await confirmUnsubscribe('app1');
     const [, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
     expect(identityId).toBe('b');
     expect(sentId).toBe('own-sent');
@@ -89,8 +99,10 @@ describe('ReadReceiptBanner on a shared-account message', () => {
     expect(arg.accountId.accountId).toBe('c');
     expect(arg.sentMailboxId).toBe('own-sent');
     expect(arg.identityId).toBe('b');
-    const [ids, , scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
     expect(ids).toEqual(['m1']);
+    expect(keywords).toEqual({ $mdnsent: true });
     expect(scope.accountId).toBe('f');
+    expect(scope.gen).toBe(arg.accountId.gen);
   });
 });

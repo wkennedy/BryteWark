@@ -1,7 +1,11 @@
 // A just-enough hook runtime so a function component can be run in the node
-// test environment (the repo has no renderer): state/ref/memo slots by call
-// order, effects ignored. `renderComponent` returns the latest element tree
-// and re-renders it after each state change.
+// test environment (the repo has no renderer). Covered: state, ref and memo
+// slots by call order (memo recomputes when its deps change), and
+// `renderComponent`, which returns the latest element tree and re-renders it
+// after each state change. Not covered: effects are ignored unless asked for,
+// then each runs once after the first render, with no re-run on changed deps
+// and no cleanup; child components are never rendered, only their elements
+// are in the tree.
 import * as React from 'react';
 import type { ReactElement } from 'react';
 
@@ -27,7 +31,12 @@ export const hookShim = {
     }] as const;
   },
   useRef: <T,>(init: T) => slot(() => ({ current: init })).value as { current: T },
-  useMemo: <T,>(fn: () => T) => slot(fn).value as T,
+  useMemo: <T,>(fn: () => T, deps?: unknown[]) => {
+    const s = slot(() => ({ value: fn(), deps })).value as { value: T; deps?: unknown[] };
+    const changed = !deps || !s.deps || deps.length !== s.deps.length || deps.some((d, i) => !Object.is(d, s.deps![i]));
+    if (changed) { s.value = fn(); s.deps = deps; }
+    return s.value;
+  },
   useCallback: <T,>(fn: T) => fn,
   useEffect: (fn: () => unknown) => {
     const s = slot(() => ({ ran: false }));
