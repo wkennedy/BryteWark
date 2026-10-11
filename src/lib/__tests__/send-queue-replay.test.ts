@@ -16,6 +16,8 @@ vi.mock('../../api/jmap-client', () => {
       isConnected: true,
       accountId: 'jA',
       connectedAccountId: 'jA',
+      connectionGen: 1,
+      isCurrent(gen: number) { return gen === (this as { connectionGen: number }).connectionGen; },
       getSubmissionAccountIds: vi.fn(() => ['jA']),
       // The server has since dropped every extension: replay must not care.
       supportsSubmissionExtension: vi.fn(() => false),
@@ -71,7 +73,7 @@ const mockIdentities = getIdentities as unknown as ReturnType<typeof vi.fn>;
 const mockActive = activeAppAccountId as unknown as ReturnType<typeof vi.fn>;
 const mockServes = clientServesActiveAccount as unknown as ReturnType<typeof vi.fn>;
 const client = jmapClient as unknown as {
-  isConnected: boolean; accountId: string; connectedAccountId: string | null; getSubmissionAccountIds: ReturnType<typeof vi.fn>;
+  isConnected: boolean; accountId: string; connectedAccountId: string | null; connectionGen: number; getSubmissionAccountIds: ReturnType<typeof vi.fn>;
   supportsSubmissionExtension: ReturnType<typeof vi.fn>; request: ReturnType<typeof vi.fn>;
 };
 
@@ -119,6 +121,7 @@ beforeEach(async () => {
   client.isConnected = true;
   client.accountId = 'jA';
   client.connectedAccountId = 'jA';
+  client.connectionGen = 1;
   client.getSubmissionAccountIds.mockReturnValue(['jA']);
   // The submitting account holds the default entry's identity (`iA`, me@a.test).
   mockIdentities.mockResolvedValue([{ id: 'iA', name: '', email: 'me@a.test', mayDelete: true }]);
@@ -671,6 +674,7 @@ describe('flushSendQueue: sending queued entries', () => {
 
   it('sends with the entry account, identity and mailboxes resolved for that account', async () => {
     await seed(entry({ draftId: 'dr-1' }));
+    mockFlags.mockResolvedValue({ list: [{ id: 'dr-1', keywords: { $draft: true }, mailboxIds: { 'm-drafts': true } }], notFound: [] });
     await flushSendQueue();
     expect(mockSend).toHaveBeenCalledTimes(1);
     const [outgoing, identityId, sentId, holdFor, opts] = mockSend.mock.calls[0];
@@ -1138,6 +1142,10 @@ describe('flushSendQueue: a held send whose account id went stale', () => {
   // The primary's identities read for a re-stamp, by bare id; the check
   // before each send reads its account's on a scope.
   const restampReads = () => mockIdentities.mock.calls.filter(([a]) => typeof a === 'string');
+  // The old account still holds the row's draft, so a send there replaces it.
+  beforeEach(() => {
+    mockFlags.mockResolvedValue({ list: [{ id: 'd-old', keywords: { $draft: true }, mailboxIds: { 'm-drafts': true } }], notFound: [] });
+  });
   // Rows written since the attempt mark (schema 2); older ones are never re-stamped.
   const stale = (over: Partial<QueuedSend> = {}) => entry({
     schema: 2, jmapAccountId: 'jOld', heldReason: 'account_unavailable', identityId: 'iA', draftId: 'd-old',
@@ -1402,6 +1410,125 @@ describe('flushSendQueue: the identity in the submitting account', () => {
     expect(stateOf('q1')).toBe('queued');
     expect(heldOf('q1')).toBeUndefined();
     expect(entries()[0].attemptStartedAt).toBeUndefined();
+  });
+
+  // An old quick reply to shared mail: queued against the shared account with
+  // the user's own identity id. When the primary holds that id with that
+  // address it is re-stamped there and sent, as a stale account's row is.
+  const quickReply = (over: Partial<QueuedSend> = {}) => shared({
+    schema: 2, draftId: 'e-shared',
+    replyTo: { emailIds: ['e-orig'], keyword: '$answered', jmapAccountId: 'f' },
+    ...over,
+  });
+  const identitiesByAccount = (byAccount: Record<string, ReturnType<typeof identity>[]>) =>
+    mockIdentities.mockImplementation(async (a: string | { accountId: string }) =>
+      byAccount[typeof a === 'string' ? a : a.accountId] ?? []);
+
+  it('re-stamps an own-identity row from a shared account onto the primary and sends it there', async () => {
+    await seed(quickReply());
+    identitiesByAccount({ f: [identity('b', 'team@x')], jA: [identity('b', 'bob@x')] });
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][1]).toBe('b');
+    // The shared account's ids mean nothing on the primary: no draft, no flag.
+    expect(mockSend.mock.calls[0][4]).toMatchObject({ accountId: expect.objectContaining({ accountId: 'jA' }), draftId: undefined });
+    expect(patchKeywordsForEmails).not.toHaveBeenCalled();
+    expect(mockFlags).not.toHaveBeenCalled();
+    expect(entries()).toEqual([]);
+  });
+
+  it('keeps holding such a row when it was ever attempted', async () => {
+    await seed(quickReply({ everAttempted: true }));
+    identitiesByAccount({ f: [identity('b', 'team@x')], jA: [identity('b', 'bob@x')] });
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(entries()[0]).toMatchObject({ jmapAccountId: 'f', heldReason: 'account_unavailable', draftId: 'e-shared' });
+  });
+
+  it('keeps holding such a row when the connection is replaced while the primary\'s identities load', async () => {
+    await seed(quickReply());
+    // The read that saw the identity ran as the connection was replaced; the
+    // new connection's primary does not hold it.
+    let primaryReads = 0;
+    mockIdentities.mockImplementation(async (a: string | { accountId: string }) => {
+      if (typeof a !== 'string') return [identity('b', 'team@x')];
+      client.connectionGen = 2;
+      return primaryReads++ === 0 ? [identity('b', 'bob@x')] : [];
+    });
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(entries()[0]).toMatchObject({ jmapAccountId: 'f', heldReason: 'account_unavailable' });
+  });
+
+  it('keeps holding such a row when the primary\'s identity of that id has another address', async () => {
+    await seed(quickReply());
+    identitiesByAccount({ f: [identity('b', 'team@x')], jA: [identity('b', 'carol@x')] });
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(entries()[0]).toMatchObject({ jmapAccountId: 'f', heldReason: 'account_unavailable' });
+  });
+});
+
+describe('flushSendQueue: a queued draftId is destroyed only when it names a draft', () => {
+  // Email ids repeat across accounts: an old row may carry another account's
+  // draft id, which in the row's account can name an ordinary message.
+  it('sends without the draft id when it names a message that is not a draft', async () => {
+    await seed(entry({ draftId: 'e-1' }));
+    mockFlags.mockResolvedValue({ list: [{ id: 'e-1', keywords: { $seen: true }, mailboxIds: { inbox: true } }], notFound: [] });
+    await flushSendQueue();
+    expect(mockFlags).toHaveBeenCalledWith(['e-1'], expect.objectContaining({ accountId: 'jA' }));
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][4].draftId).toBeUndefined();
+    expect(entries()).toEqual([]);
+  });
+
+  it('sends without the draft id when it names a $draft outside the Drafts folder, or nothing', async () => {
+    await seed(entry({ id: 'q1', draftId: 'e-1' }));
+    await seed(entry({ id: 'q2', createdAt: '2026-10-04T09:00:00.000Z', draftId: 'gone' }));
+    mockFlags.mockImplementation(async ([id]: string[]) => (id === 'e-1'
+      ? { list: [{ id: 'e-1', keywords: { $draft: true }, mailboxIds: { 'm-sent': true } }], notFound: [] }
+      : { list: [], notFound: [id] }));
+    await flushSendQueue();
+    expect(mockSend.mock.calls.map((c) => c[4].draftId)).toEqual([undefined, undefined]);
+  });
+
+  it('still replaces a real draft in the Drafts folder', async () => {
+    await seed(entry({ draftId: 'dr-1' }));
+    mockFlags.mockResolvedValue({ list: [{ id: 'dr-1', keywords: { $draft: true }, mailboxIds: { 'm-drafts': true } }], notFound: [] });
+    await flushSendQueue();
+    expect(mockSend.mock.calls[0][4].draftId).toBe('dr-1');
+  });
+
+  it('takes $draft alone when the read gives no mailboxes', async () => {
+    await seed(entry({ draftId: 'dr-1' }));
+    mockFlags.mockResolvedValue({ list: [{ id: 'dr-1', keywords: { $draft: true } }], notFound: [] });
+    await flushSendQueue();
+    expect(mockSend.mock.calls[0][4].draftId).toBe('dr-1');
+  });
+
+  it('sends without the draft id when the server refuses the read', async () => {
+    await seed(entry({ draftId: 'dr-1' }));
+    mockFlags.mockRejectedValue(new JMAPMethodError('forbidden', 'no'));
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][4].draftId).toBeUndefined();
+  });
+
+  it('stops the flush, sending nothing, when the read fails otherwise', async () => {
+    await seed(entry({ draftId: 'dr-1' }));
+    mockFlags.mockRejectedValue(new NetworkError('offline'));
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(stateOf('q1')).toBe('queued');
+    expect(heldOf('q1')).toBeUndefined();
+    expect(entries()[0].attemptStartedAt).toBeUndefined();
+  });
+
+  it('reads nothing for a row without a draft', async () => {
+    await seed(entry());
+    await flushSendQueue();
+    expect(mockFlags).not.toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 });
 

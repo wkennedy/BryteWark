@@ -50,8 +50,10 @@ function normalizedAddress(email: string | undefined): string {
  * (id and address) the message is from, so it is sent as the user, from an
  * address the user may send from; it never goes out as somebody else. Only
  * the live primary, only when the session does not serve the entry's own
- * account (releaseHold covers that), and only when the primary's identities
- * hold the entry's identity id with the address the message is from.
+ * account (releaseHold covers that; replay passes false for an account that
+ * is served but has no identity sending as the entry), and only when the
+ * primary's identities hold the entry's identity id with the address the
+ * message is from.
  */
 export function restampTarget(
   entry: QueuedSend,

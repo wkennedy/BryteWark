@@ -25,7 +25,10 @@
 //   the one exception is `account_unavailable` on an entry never attempted,
 //   released once the session serves that account again, or re-stamped onto
 //   the session's primary when that holds the entry's identity and address
-//   (releaseAccountHold, restampTarget).
+//   (releaseAccountHold, restampTarget). A served account with no identity
+//   sending as the entry holds it the same way, and may re-stamp it too;
+// - a queued `draftId` is destroyed with the send only while it still names
+//   a draft in the entry's account (confirmedDraftId).
 // A queue replays only through its own account: entries of another app
 // account wait until it is active again (no detached clients).
 
@@ -36,7 +39,7 @@ import type { Identity } from '../api/types';
 import {
   JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient,
 } from '../api/jmap-result';
-import { opScope, type OpScope } from '../api/op-scope';
+import { isCurrentScope, opScope, type OpScope } from '../api/op-scope';
 import {
   findCopiesByMessageId,
   findSubmissionsForEmails,
@@ -51,6 +54,7 @@ import { activeAppAccountId, clientServesActiveAccount } from './active-client-a
 import { trustRecipients, trustedSendersBookSyncOn } from './trust-recipients';
 import { isStaleLoad } from './network-error';
 import { mayRestamp, restampTarget } from './queue-restamp';
+import { confirmedDraftId } from './queued-draft';
 
 /** How far before the attempt the copy lookup starts (generous: device clocks drift). */
 export const RECONCILE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -441,16 +445,26 @@ async function releaseAccountHold(entry: QueuedSend, identitiesOf: PrimaryIdenti
  * again after the identities load: the app account, the primary and whether
  * the old account came back may all have changed meanwhile. The store's
  * restamp re-checks the entry itself. Resolves true when it was re-stamped.
+ *
+ * `mismatchOn`: the entry's account is served but, on that connection, has
+ * no identity sending as the entry (sendOne). That account cannot send it
+ * either, so it counts as not served, as long as the connection is still
+ * the one that check ran on.
  */
-async function restampOntoPrimary(entry: QueuedSend, identitiesOf: PrimaryIdentities): Promise<boolean> {
+async function restampOntoPrimary(
+  entry: QueuedSend,
+  identitiesOf: PrimaryIdentities,
+  mismatchOn?: OpScope,
+): Promise<boolean> {
   const primaryId = jmapClient.connectedAccountId;
   // Most held entries can never move: ask the server nothing for them.
   if (!primaryId || primaryId === entry.jmapAccountId || !mayRestamp(entry)) return false;
   const identities = await identitiesOf(primaryId);
   if (!identities || !canReplay(entry.appAccountId) || jmapClient.connectedAccountId !== primaryId) return false;
+  if (mismatchOn && !isCurrentScope(mismatchOn)) return false;
   const target = restampTarget(entry, {
     primaryId,
-    servesEntryAccount: servesJmapAccount(entry.jmapAccountId),
+    servesEntryAccount: !mismatchOn && servesJmapAccount(entry.jmapAccountId),
     identities,
   });
   if (!target) return false;
@@ -504,7 +518,11 @@ function accountIdentitiesOnce(): AccountIdentities {
 }
 
 /** Send one `queued` entry. Returns true when the flush must stop. */
-async function sendOne(entry: QueuedSend, identitiesOf: AccountIdentities): Promise<boolean> {
+async function sendOne(
+  entry: QueuedSend,
+  identitiesOf: AccountIdentities,
+  primaryIdentitiesOf: PrimaryIdentities,
+): Promise<boolean> {
   const store = useSendQueueStore.getState();
   // One connection for every request to the row's account: a check made on
   // one connection proves nothing about a send on the next.
@@ -554,7 +572,27 @@ async function sendOne(entry: QueuedSend, identitiesOf: AccountIdentities): Prom
   if (!identityMatches(entry, identities)) {
     console.warn('[send-queue] the identity does not send as From in this account; not replaying', entry.id);
     await holdEntry(entry, 'account_unavailable');
+    // An own identity id on a shared account (an old quick reply): the
+    // primary may hold it, under the usual re-stamp rules. Otherwise it stays
+    // held. A re-stamped entry names the primary, so this recurses once.
+    const held = liveEntry(entry.appAccountId, entry.id);
+    if (held && (await restampOntoPrimary(held, primaryIdentitiesOf, at))) {
+      const moved = liveEntry(entry.appAccountId, entry.id);
+      if (moved && moved.state === 'queued' && !moved.heldReason && canReplay(entry.appAccountId)
+        && servesJmapAccount(moved.jmapAccountId)) {
+        return sendOne(moved, identitiesOf, primaryIdentitiesOf);
+      }
+    }
     return false;
+  }
+  // Email ids repeat across accounts too: an old row's draft id may name an
+  // ordinary message here, which the send would destroy.
+  let draftId: string | undefined;
+  try {
+    draftId = await confirmedDraftId(entry.draftId, at, draftsId);
+  } catch (err) {
+    console.warn('[send-queue] could not read the draft, stopping:', err);
+    return true;
   }
   if (!canReplay(entry.appAccountId)) return true;
 
@@ -580,7 +618,7 @@ async function sendOne(entry: QueuedSend, identitiesOf: AccountIdentities): Prom
   try {
     result = await sendEmail(entry.outgoing, entry.identityId, sentId, holdFor, {
       draftsMailboxId: draftsId,
-      draftId: entry.draftId,
+      draftId,
       accountId: at,
     });
   } catch (err) {
@@ -654,7 +692,7 @@ async function flushOnce(): Promise<'done' | 'stopped'> {
     }
     // `failed` waits for the user; `sending` belongs to an attempt in progress.
     if (entry.state !== 'queued') continue;
-    if (await sendOne(entry, accountIdentitiesOf)) return 'stopped';
+    if (await sendOne(entry, accountIdentitiesOf, identitiesOf)) return 'stopped';
   }
   return 'done';
 }
