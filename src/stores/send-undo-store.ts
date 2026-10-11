@@ -158,8 +158,9 @@ export const useSendUndoStore = create<SendUndoState>((set, get) => ({
 
 /**
  * After an undo: move the held message back into Drafts and load it for the
- * composer, in the account it was sent from (a quick reply to shared mail
- * goes out of the shared account). Webmail `cancelUndoSend`. `mailboxes` are
+ * composer, in the account the send was submitted from: the user's own for
+ * a reply, even a quick reply to shared mail; a shared account only for a
+ * send from that account's identity. Webmail `cancelUndoSend`. `mailboxes` are
  * app account `mailboxesOf`'s folders (the email store's); refused unless
  * that is the account the message was sent from and the client serves it.
  */

@@ -57,6 +57,7 @@ import {
 } from '../api/email';
 import { jmapClient } from '../api/jmap-client';
 import { formatRejectedRecipients } from '../api/jmap-result';
+import { inAccount, opScope } from '../api/op-scope';
 import { sendErrorAlert } from '../lib/send-errors';
 import { uploadBlob, uploadBytes } from '../api/blob';
 import { buildReplyRecipients, type ReplySource } from '../lib/reply-recipients';
@@ -1837,9 +1838,12 @@ export default function ComposeScreen({ route, navigation }: Props) {
     if (autosaved && !draft) {
       void (async () => {
         try { await inflightSaveRef.current; } catch { /* ignore */ }
-        const id = draftIdRef.current ?? autosaved;
-        // Only a new message gets here (!draft), so its draft is the own account's.
-        const account = autosavedAccount ?? undefined;
+        // The id and its account are read together after the wait: the save
+        // that just finished set both. Only a new message gets here (!draft),
+        // so its draft is the own account's either way.
+        const latest = draftIdRef.current;
+        const id = latest ?? autosaved;
+        const account = (latest ? draftAccountRef.current : autosavedAccount) ?? undefined;
         // The composer is already closed; a switch during the wait leaves the
         // draft in the owner's Drafts rather than destroying an id in the
         // other account.
@@ -2738,6 +2742,9 @@ export default function ComposeScreen({ route, navigation }: Props) {
     setSending(true);
     try {
       const outgoing = buildOutgoing(primaryIdentity, liveBodyHtml, { forDraft: false });
+      // One connection for the send and the reply flag after it: the user's
+      // own account, as before; the flag goes to the original's account on it.
+      const at = opScope();
       const result = await sendEmail(
         outgoing,
         (submissionIdentity ?? primaryIdentity).id,
@@ -2747,6 +2754,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
           draftsMailboxId: draftsMailbox?.id,
           draftId: draftIdRef.current ?? undefined,
           draftAccountId: draftAccountRef.current ?? undefined,
+          accountId: at,
         },
       );
       draftIdRef.current = null;
@@ -2767,7 +2775,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
         void patchKeywordsForEmails(
           [replyTo.originalEmailId],
           { [mode === 'forward' ? '$forwarded' : '$answered']: true },
-          replyTo.jmapAccountId,
+          inAccount(at, replyTo.jmapAccountId),
         ).catch(() => undefined);
       }
       // People you reply to are people you trust: allow their remote content
