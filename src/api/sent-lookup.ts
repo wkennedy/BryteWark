@@ -4,7 +4,8 @@
 
 import { jmapClient } from './jmap-client';
 import { requireMethodResult } from './jmap-result';
-import { CAPABILITIES } from './types';
+import { CAPABILITIES, type JMAPMethodCall } from './types';
+import type { OpScope } from './op-scope';
 
 /** Messages per lookup page. */
 export const COPY_LOOKUP_PAGE = 200;
@@ -120,9 +121,16 @@ export async function findCopiesByMessageId(
   return { copies, complete: false, proven: false };
 }
 
-/** The account's Sent and Drafts mailboxes by role (raw ids, as the server knows them). */
-export async function resolveSendMailboxes(accountId: string): Promise<{ sentId?: string; draftsId?: string }> {
-  const res = await jmapClient.request([['Mailbox/get', { accountId, properties: ['id', 'role'] }, '0']]);
+/**
+ * The account's Sent and Drafts mailboxes by role (raw ids, as the server
+ * knows them). A scope binds the read to its connection; a bare id reads on
+ * the live one.
+ */
+export async function resolveSendMailboxes(account: string | OpScope): Promise<{ sentId?: string; draftsId?: string }> {
+  const at = typeof account === 'object' ? account : null;
+  const accountId = at ? at.accountId : account;
+  const calls: JMAPMethodCall[] = [['Mailbox/get', { accountId, properties: ['id', 'role'] }, '0']];
+  const res = at ? await jmapClient.request(calls, undefined, { gen: at.gen }) : await jmapClient.request(calls);
   const list = (requireMethodResult(res, '0', 'Mailbox/get').list as Array<{ id: string; role?: string | null }> | undefined) ?? [];
   return {
     sentId: list.find((m) => m.role === 'sent')?.id,

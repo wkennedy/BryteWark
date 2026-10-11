@@ -36,7 +36,7 @@ import type { Identity } from '../api/types';
 import {
   JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient,
 } from '../api/jmap-result';
-import { opScope } from '../api/op-scope';
+import { opScope, type OpScope } from '../api/op-scope';
 import {
   findCopiesByMessageId,
   findSubmissionsForEmails,
@@ -483,9 +483,32 @@ function identityMatches(entry: QueuedSend, identities: readonly Identity[]): bo
     .some((address) => normalizedAddress(address) === own);
 }
 
+/** A JMAP account's identities read on a scope; rejects as getIdentities does. */
+type AccountIdentities = (at: OpScope) => Promise<readonly Identity[]>;
+
+/**
+ * Reads each account's identities at most once per connection for one flush
+ * pass, so N rows of one account make one Identity/get.
+ */
+function accountIdentitiesOnce(): AccountIdentities {
+  const reads = new Map<string, Promise<readonly Identity[]>>();
+  return (at) => {
+    const key = `${at.gen}:${at.accountId}`;
+    let read = reads.get(key);
+    if (!read) {
+      read = getIdentities(at);
+      reads.set(key, read);
+    }
+    return read;
+  };
+}
+
 /** Send one `queued` entry. Returns true when the flush must stop. */
-async function sendOne(entry: QueuedSend): Promise<boolean> {
+async function sendOne(entry: QueuedSend, identitiesOf: AccountIdentities): Promise<boolean> {
   const store = useSendQueueStore.getState();
+  // One connection for every request to the row's account: a check made on
+  // one connection proves nothing about a send on the next.
+  const at = opScope(entry.jmapAccountId);
   const holdFor = holdForSeconds(entry.sendAt);
   if (holdFor === null) {
     console.warn('[send-queue] unreadable sendAt, not sending', entry.id);
@@ -495,7 +518,7 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
   let sentId: string | undefined;
   let draftsId: string | undefined;
   try {
-    ({ sentId, draftsId } = await resolveSendMailboxes(entry.jmapAccountId));
+    ({ sentId, draftsId } = await resolveSendMailboxes(at));
   } catch (err) {
     console.warn('[send-queue] could not resolve Sent, stopping:', err);
     return true;
@@ -518,7 +541,7 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
   // that id there. The id must name the From address in the row's account.
   let identities: readonly Identity[];
   try {
-    identities = await getIdentities(opScope(entry.jmapAccountId));
+    identities = await identitiesOf(at);
   } catch (err) {
     if (!(err instanceof JMAPMethodError)) {
       console.warn('[send-queue] could not read the identities, stopping:', err);
@@ -558,7 +581,7 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
     result = await sendEmail(entry.outgoing, entry.identityId, sentId, holdFor, {
       draftsMailboxId: draftsId,
       draftId: entry.draftId,
-      accountId: entry.jmapAccountId,
+      accountId: at,
     });
   } catch (err) {
     const outcome = classifySendError(err);
@@ -606,6 +629,7 @@ async function flushOnce(): Promise<'done' | 'stopped'> {
   const ordered = [...(useSendQueueStore.getState().entries[appId] ?? [])]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const identitiesOf = primaryIdentitiesOnce();
+  const accountIdentitiesOf = accountIdentitiesOnce();
 
   for (const snapshot of ordered) {
     if (!canReplay(appId)) return 'stopped';
@@ -630,7 +654,7 @@ async function flushOnce(): Promise<'done' | 'stopped'> {
     }
     // `failed` waits for the user; `sending` belongs to an attempt in progress.
     if (entry.state !== 'queued') continue;
-    if (await sendOne(entry)) return 'stopped';
+    if (await sendOne(entry, accountIdentitiesOf)) return 'stopped';
   }
   return 'done';
 }

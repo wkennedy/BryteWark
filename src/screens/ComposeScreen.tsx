@@ -1838,7 +1838,8 @@ export default function ComposeScreen({ route, navigation }: Props) {
       void (async () => {
         try { await inflightSaveRef.current; } catch { /* ignore */ }
         const id = draftIdRef.current ?? autosaved;
-        const account = (draftIdRef.current ? draftAccountRef.current : autosavedAccount) ?? undefined;
+        // Only a new message gets here (!draft), so its draft is the own account's.
+        const account = autosavedAccount ?? undefined;
         // The composer is already closed; a switch during the wait leaves the
         // draft in the owner's Drafts rather than destroying an id in the
         // other account.
