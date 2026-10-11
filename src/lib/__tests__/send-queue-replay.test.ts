@@ -49,7 +49,7 @@ import { sendEmail, patchKeywordsForEmails, getEmailFlags, destroyEmails } from 
 import { findCopiesByMessageId, findSubmissionsForEmails, resolveSendMailboxes } from '../../api/sent-lookup';
 import { getIdentities } from '../../api/identity';
 import {
-  RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, SendUnconfirmedError,
+  JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, SendUnconfirmedError,
 } from '../../api/jmap-result';
 import { clientServesActiveAccount, activeAppAccountId } from '../active-client-account';
 import { trustRecipients } from '../trust-recipients';
@@ -120,7 +120,8 @@ beforeEach(async () => {
   client.accountId = 'jA';
   client.connectedAccountId = 'jA';
   client.getSubmissionAccountIds.mockReturnValue(['jA']);
-  mockIdentities.mockResolvedValue([]);
+  // The submitting account holds the default entry's identity (`iA`, me@a.test).
+  mockIdentities.mockResolvedValue([{ id: 'iA', name: '', email: 'me@a.test', mayDelete: true }]);
   mockActive.mockReturnValue('A');
   mockServes.mockReturnValue(true);
   mockBoxes.mockResolvedValue({ sentId: 'm-sent', draftsId: 'm-drafts' });
@@ -723,6 +724,7 @@ describe('flushSendQueue: sending queued entries', () => {
           envelopeMailFrom: 'alias@a.test', envelopeFallbackMailFrom: 'me@a.test', requireTls: true,
         },
       });
+      mockIdentities.mockResolvedValue([{ id: 'iInfo', name: '', email: 'me@a.test', mayDelete: true }]);
       await flushSendQueue();
       expect(mockSend).toHaveBeenCalledTimes(1);
       const [outgoing, identityId] = mockSend.mock.calls[0];
@@ -1133,6 +1135,9 @@ describe('flushSendQueue: a held send whose account id went stale', () => {
   // The server renumbered the account (a migration, a restore): the entry's
   // JMAP id is gone and the session's primary is the same mailbox now.
   const identity = (id: string, email: string) => ({ id, name: '', email, mayDelete: true });
+  // The primary's identities read for a re-stamp, by bare id; the check
+  // before each send reads its account's on a scope.
+  const restampReads = () => mockIdentities.mock.calls.filter(([a]) => typeof a === 'string');
   // Rows written since the attempt mark (schema 2); older ones are never re-stamped.
   const stale = (over: Partial<QueuedSend> = {}) => entry({
     schema: 2, jmapAccountId: 'jOld', heldReason: 'account_unavailable', identityId: 'iA', draftId: 'd-old',
@@ -1236,7 +1241,7 @@ describe('flushSendQueue: a held send whose account id went stale', () => {
     await seed(stale({ id: 'q2', createdAt: '2026-10-04T09:00:00.000Z' }));
     mockIdentities.mockResolvedValue([identity('iA', 'me@a.test')]);
     await flushSendQueue();
-    expect(mockIdentities).toHaveBeenCalledTimes(1);
+    expect(restampReads()).toHaveLength(1);
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(mockSend.mock.calls.map((c) => c[4].accountId)).toEqual(['jA', 'jA']);
   });
@@ -1261,7 +1266,7 @@ describe('flushSendQueue: a held send whose account id went stale', () => {
     client.getSubmissionAccountIds.mockReturnValue(['jA', 'jOld']);
     mockIdentities.mockResolvedValue([identity('iA', 'me@a.test')]);
     await flushSendQueue();
-    expect(mockIdentities).not.toHaveBeenCalled();
+    expect(restampReads()).toEqual([]);
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(mockSend.mock.calls[0][4]).toMatchObject({ accountId: 'jOld', draftId: 'd-old' });
   });
@@ -1281,6 +1286,94 @@ describe('flushSendQueue: a held send whose account id went stale', () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(mockSend.mock.calls[0][4]).toMatchObject({ accountId: 'jOld', draftId: 'd-old' });
     expect(entries()).toEqual([]);
+  });
+});
+
+describe('flushSendQueue: the identity in the submitting account', () => {
+  // Identity ids collide across accounts: a row queued with an own identity
+  // id against a shared account must not send from the shared account's
+  // identity of the same id.
+  const identity = (id: string, email: string) => ({ id, name: '', email, mayDelete: true });
+  const shared = (over: Partial<QueuedSend> = {}) => entry({
+    jmapAccountId: 'f', identityId: 'b',
+    outgoing: { ...entry().outgoing, from: [{ email: 'bob@x' }] },
+    ...over,
+  });
+
+  beforeEach(() => {
+    client.getSubmissionAccountIds.mockReturnValue(['jA', 'f']);
+  });
+
+  it('holds a row whose identity id has another address in the target account, sending nothing', async () => {
+    await seed(shared());
+    mockIdentities.mockResolvedValue([identity('b', 'team@x'), identity('c', 'team@x')]);
+    await flushSendQueue();
+    expect(mockIdentities.mock.calls.map(([a]) => (typeof a === 'object' ? a.accountId : a))).toContain('f');
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(stateOf('q1')).toBe('queued');
+    expect(heldOf('q1')).toBe('account_unavailable');
+    expect(entries()[0].attemptStartedAt).toBeUndefined();
+  });
+
+  it('holds a row whose identity id is missing from the target account', async () => {
+    await seed(shared());
+    mockIdentities.mockResolvedValue([identity('c', 'bob@x')]);
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(heldOf('q1')).toBe('account_unavailable');
+  });
+
+  it('sends a row whose identity matches its From in the target account (address case aside)', async () => {
+    await seed(shared({ outgoing: { ...entry().outgoing, from: [{ email: 'Team@X' }] } }));
+    mockIdentities.mockResolvedValue([identity('b', 'team@x')]);
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][1]).toBe('b');
+    expect(mockSend.mock.calls[0][4]).toMatchObject({ accountId: 'f' });
+    expect(entries()).toEqual([]);
+  });
+
+  it('sends own rows whose From differs from the identity by design: sub-address, From override, wildcard', async () => {
+    const base = entry().outgoing;
+    await seed(entry({ id: 'q1', outgoing: { ...base, messageId: 'mid-1@a.test', from: [{ email: 'me+tag@a.test' }], envelopeMailFrom: 'me@a.test' } }));
+    await seed(entry({
+      id: 'q2', createdAt: '2026-10-04T09:00:00.000Z',
+      outgoing: { ...base, messageId: 'mid-q2@a.test', from: [{ email: 'alias@a.test' }], envelopeMailFrom: 'alias@a.test', envelopeFallbackMailFrom: 'me@a.test' },
+    }));
+    await seed(entry({
+      id: 'q3', createdAt: '2026-10-04T10:00:00.000Z', identityId: 'iW',
+      outgoing: { ...base, messageId: 'mid-q3@a.test', from: [{ email: 'any@a.test' }], envelopeMailFrom: 'any@a.test' },
+    }));
+    mockIdentities.mockResolvedValue([identity('iA', 'me@a.test'), identity('iW', '*@a.test')]);
+    await flushSendQueue();
+    expect(mockSend).toHaveBeenCalledTimes(3);
+    expect(entries()).toEqual([]);
+  });
+
+  it('holds a wildcard identity\'s row from another domain', async () => {
+    await seed(entry({ identityId: 'iW', outgoing: { ...entry().outgoing, from: [{ email: 'any@evil.test' }] } }));
+    mockIdentities.mockResolvedValue([identity('iW', '*@a.test')]);
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(heldOf('q1')).toBe('account_unavailable');
+  });
+
+  it('holds the row when the server refuses to give that account\'s identities', async () => {
+    await seed(shared());
+    mockIdentities.mockRejectedValue(new JMAPMethodError('forbidden', 'no access'));
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(heldOf('q1')).toBe('account_unavailable');
+  });
+
+  it('stops the flush without holding or sending when the identities cannot be read', async () => {
+    await seed(shared());
+    mockIdentities.mockRejectedValue(new NetworkError('offline'));
+    await flushSendQueue();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(stateOf('q1')).toBe('queued');
+    expect(heldOf('q1')).toBeUndefined();
+    expect(entries()[0].attemptStartedAt).toBeUndefined();
   });
 });
 

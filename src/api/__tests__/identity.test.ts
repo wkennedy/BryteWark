@@ -33,6 +33,18 @@ describe('identity operations', () => {
     });
   });
 
+  describe('getIdentities on a scope', () => {
+    it('reads the scope\'s account on the scope\'s connection', async () => {
+      mockRequest.mockResolvedValue({ methodResponses: [['Identity/get', { list: [] }, '0']] });
+      await getIdentities({ gen: 7, accountId: 'f' });
+      expect(mockRequest).toHaveBeenCalledWith(
+        [['Identity/get', { accountId: 'f' }, '0']],
+        expect.arrayContaining(['urn:ietf:params:jmap:submission']),
+        { gen: 7 },
+      );
+    });
+  });
+
   describe('createIdentity', () => {
     it('should create a new identity', async () => {
       const created = { id: 'id-new', name: 'Work', email: 'work@example.com' };

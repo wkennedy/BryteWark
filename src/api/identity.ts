@@ -1,7 +1,8 @@
 import { jmapClient } from './jmap-client';
 import { assertSetResult, requireMethodResult } from './jmap-result';
 import { CAPABILITIES } from './types';
-import type { Identity } from './types';
+import type { Identity, JMAPMethodCall } from './types';
+import type { AccountRef } from './op-scope';
 import { sanitizeDisplayName } from '../lib/rfc5322-mailbox';
 
 const USING = [CAPABILITIES.CORE, CAPABILITIES.SUBMISSION];
@@ -14,9 +15,18 @@ function sanitizeIdentityPatch(identity: Partial<Identity>): Partial<Identity> {
   return { ...identity, name: sanitizeDisplayName(identity.name) };
 }
 
-export async function getIdentities(accountIdOverride?: string): Promise<Identity[]> {
-  const accountId = accountIdOverride ?? jmapClient.accountId;
-  const res = await jmapClient.request([['Identity/get', { accountId }, '0']], USING);
+/**
+ * The identities of `account`: a bare JMAP account id or nothing (the user's
+ * own) on the live connection, or a scope, whose connection the read is
+ * bound to.
+ */
+export async function getIdentities(account?: AccountRef): Promise<Identity[]> {
+  const at = typeof account === 'object' && account !== null ? account : null;
+  const accountId = at?.accountId ?? (account as string | undefined) ?? jmapClient.accountId;
+  const calls: JMAPMethodCall[] = [['Identity/get', { accountId }, '0']];
+  const res = at
+    ? await jmapClient.request(calls, USING, { gen: at.gen })
+    : await jmapClient.request(calls, USING);
   const body = requireMethodResult<{ list?: Identity[] }>(res, '0', 'Identity/get');
   return body.list ?? [];
 }

@@ -76,6 +76,22 @@ export function queueJmapAccountId(
   return params.recorded?.(owner.appAccountId) || owner.jmapAccountId || '';
 }
 
+/**
+ * The draft id a queued send may remove once it went out: only a draft in
+ * the row's own JMAP account, since replay destroys `draftId` there and email
+ * ids repeat across accounts. `draftAccountId` null means the user's own
+ * account. A draft from another account is left in place.
+ */
+export function queueDraftId(
+  draftId: string | null,
+  draftAccountId: string | null,
+  ownAccountId: string,
+  rowAccountId: string,
+): string | undefined {
+  if (!draftId) return undefined;
+  return (draftAccountId ?? ownAccountId) === rowAccountId ? draftId : undefined;
+}
+
 /** How the "switch back" alert names the owner; never empty. */
 export function composerAccountLabel(
   owner: ComposerAccount,

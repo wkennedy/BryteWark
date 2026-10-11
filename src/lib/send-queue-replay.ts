@@ -33,7 +33,10 @@ import { AuthenticationError, jmapClient } from '../api/jmap-client';
 import { destroyEmails, getEmailFlags, patchKeywordsForEmails, sendEmail } from '../api/email';
 import { getIdentities } from '../api/identity';
 import type { Identity } from '../api/types';
-import { RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient } from '../api/jmap-result';
+import {
+  JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient,
+} from '../api/jmap-result';
+import { opScope } from '../api/op-scope';
 import {
   findCopiesByMessageId,
   findSubmissionsForEmails,
@@ -460,6 +463,26 @@ async function restampOntoPrimary(entry: QueuedSend, identitiesOf: PrimaryIdenti
   }
 }
 
+const normalizedAddress = (email: string | undefined): string => (email ?? '').trim().toLowerCase();
+
+/**
+ * Whether `identities` hold the entry's identity id with an address the
+ * message is sent as: the header From, or the identity's own address the
+ * composer put on the envelope behind a sub-address (`envelopeMailFrom`) or a
+ * From override (`envelopeFallbackMailFrom`). A wildcard identity
+ * ("*@example.com") covers a From in its domain.
+ */
+function identityMatches(entry: QueuedSend, identities: readonly Identity[]): boolean {
+  const from = normalizedAddress(entry.outgoing.from?.[0]?.email);
+  if (!from) return false;
+  const identity = identities.find((i) => i.id === entry.identityId);
+  const own = normalizedAddress(identity?.email);
+  if (!own) return false;
+  if (own.startsWith('*@')) return from.endsWith(own.slice(1));
+  return [from, entry.outgoing.envelopeMailFrom, entry.outgoing.envelopeFallbackMailFrom]
+    .some((address) => normalizedAddress(address) === own);
+}
+
 /** Send one `queued` entry. Returns true when the flush must stop. */
 async function sendOne(entry: QueuedSend): Promise<boolean> {
   const store = useSendQueueStore.getState();
@@ -487,6 +510,27 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
   if (!draftsId) {
     console.warn('[send-queue] this account has no Drafts folder; not replaying', entry.id);
     await holdEntry(entry, 'no_drafts');
+    return false;
+  }
+  // Identity ids repeat across accounts: a row queued with one account's
+  // identity id against another (a quick reply from a shared folder, before
+  // it queued on the own account) would send from whatever identity has
+  // that id there. The id must name the From address in the row's account.
+  let identities: readonly Identity[];
+  try {
+    identities = await getIdentities(opScope(entry.jmapAccountId));
+  } catch (err) {
+    if (!(err instanceof JMAPMethodError)) {
+      console.warn('[send-queue] could not read the identities, stopping:', err);
+      return true;
+    }
+    // The server answered but gives no identities for that account.
+    console.warn('[send-queue] the account gives no identities; not replaying', entry.id, err);
+    identities = [];
+  }
+  if (!identityMatches(entry, identities)) {
+    console.warn('[send-queue] the identity does not send as From in this account; not replaying', entry.id);
+    await holdEntry(entry, 'account_unavailable');
     return false;
   }
   if (!canReplay(entry.appAccountId)) return true;
