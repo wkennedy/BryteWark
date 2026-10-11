@@ -1,10 +1,21 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup on `cleanup/follow-ups-3`, which is not merged yet and adds 6 commits (6 fixes). At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 486 of 494 are done and 8 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), and a shared-account mail hotfix on `fix/shared-account-mail`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 486 of 494 are done and 8 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Device checks 2 (unmerged)
+## Shared-account mail hotfix (unmerged)
+
+Branch `fix/shared-account-mail`. These are two account-safety bugs on mail in shared (group) folders. JMAP identity and email ids repeat across accounts, so an id used in the wrong account names something else.
+
+### Fixes
+- Quick reply, the unsubscribe email and read receipts are sent from your own account, with your own identity and your own Sent folder, as the full composer already did. Before, they went out from the shared account with an identity id from yours, which could send under the wrong From address. Replied and receipt flags are still set on the message where it lives. The unsubscribe email is refused after an account switch (7e3b404, 74fd816).
+- A draft opened from a shared Drafts folder is deleted only in the shared account, never by its id in your own account, where that id can name an unrelated message. On its first autosave the draft moves to your own Drafts (943a275, e8bd6d2).
+- Before a waiting Outbox message is sent or saved as a draft, the old draft it replaces is deleted only if it is still a draft. Messages queued before this fix could otherwise delete an unrelated message (6ee9fbc).
+- A waiting Outbox message whose identity doesn't send its From address in the target account is held instead of sent. One left by the old quick reply moves to your own account and sends from there (943a275, 577e6b2, 6ee9fbc).
+- The composer sets the Replied/Forwarded flag on the same connection as the send (e8bd6d2).
+
+## Device checks 2 (#20)
 
 Found on the x86_64 emulator (device check pass 2) and fixed on `fix/device-checks-2`.
 
