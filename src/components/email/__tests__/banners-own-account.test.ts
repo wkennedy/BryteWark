@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Email, Mailbox } from '../../../api/types';
 
 vi.mock('react-native', () => ({
@@ -28,7 +28,7 @@ vi.mock('../../../lib/active-client-account', () => ({
 import { Alert } from 'react-native';
 import { UnsubscribeBanner } from '../UnsubscribeBanner';
 import { ReadReceiptBanner } from '../ReadReceiptBanner';
-import { renderComponent, findElement } from './hook-harness';
+import { renderComponent, findElement, resetHooks } from './hook-harness';
 import { sendEmail, sendReadReceipt, patchKeywordsForEmails } from '../../../api/email';
 import { jmapClient } from '../../../api/jmap-client';
 import { useEmailStore } from '../../../stores/email-store';
@@ -60,6 +60,8 @@ beforeEach(() => {
     readReceiptResponse: 'ask',
   } as never);
 });
+
+afterEach(() => resetHooks());
 
 describe('UnsubscribeBanner mailto on a shared-account message', () => {
   const list = { listUnsubscribe: { preferred: 'mailto', mailto: 'mailto:unsub@news.example' } } as never;
@@ -101,6 +103,28 @@ describe('ReadReceiptBanner on a shared-account message', () => {
     expect(arg.identityId).toBe('b');
     const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
     expect(ids).toEqual(['m1']);
+    expect(keywords).toEqual({ $mdnsent: true });
+    expect(scope.accountId).toBe('f');
+    expect(scope.gen).toBe(arg.accountId.gen);
+  });
+});
+
+describe('ReadReceiptBanner in "always" mode on a shared-account message', () => {
+  it('submits the receipt automatically from the own account and flags $mdnsent in the message account', async () => {
+    useSettingsStore.setState({ readReceiptResponse: 'always', ensureIdentities: vi.fn(async () => undefined) } as never);
+    renderComponent(ReadReceiptBanner, {
+      email: { ...email, id: 'm-auto' } as Email, requestedBy: 'news@x', jmapAccountId: 'f', appAccountId: 'app1',
+      currentMailboxRole: 'inbox', active: true, onHandled: vi.fn(),
+    }, { effects: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sendReadReceipt).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendReadReceipt).mock.calls[0][0] as any;
+    expect(arg.automatic).toBe(true);
+    expect(arg.accountId.accountId).toBe('c');
+    expect(arg.sentMailboxId).toBe('own-sent');
+    expect(arg.identityId).toBe('b');
+    const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    expect(ids).toEqual(['m-auto']);
     expect(keywords).toEqual({ $mdnsent: true });
     expect(scope.accountId).toBe('f');
     expect(scope.gen).toBe(arg.accountId.gen);

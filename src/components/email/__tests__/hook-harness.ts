@@ -5,7 +5,8 @@
 // after each state change. Not covered: effects are ignored unless asked for,
 // then each runs once after the first render, with no re-run on changed deps
 // and no cleanup; child components are never rendered, only their elements
-// are in the tree.
+// are in the tree. Call `resetHooks` after each test to give React back its
+// own dispatcher.
 import * as React from 'react';
 import type { ReactElement } from 'react';
 
@@ -51,12 +52,26 @@ export const hookShim = {
 // React's hooks dispatch through this internal slot; filling it lets the real
 // react (and zustand's hooks on top of it) run outside a renderer.
 const internals = (React as any).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+// What the slot held before the shim went in, restored by resetHooks.
+let savedDispatcher: { value: unknown } | null = null;
+
+/** Put React's own dispatcher back and forget the last component's hooks. */
+export function resetHooks(): void {
+  if (savedDispatcher) internals.H = savedDispatcher.value;
+  savedDispatcher = null;
+  slots = [];
+  cursor = 0;
+  runEffects = false;
+  pendingEffects = [];
+  rerender = null;
+}
 
 /** `effects`: run each effect once, after the first render (off: ignored). */
 export function renderComponent<P>(Comp: (props: P) => ReactElement | null, props: P, opts: { effects?: boolean } = {}) {
   runEffects = !!opts.effects;
   pendingEffects = [];
   slots = [];
+  if (!savedDispatcher) savedDispatcher = { value: internals.H };
   internals.H = hookShim;
   let tree: ReactElement | null = null;
   const run = () => { cursor = 0; tree = Comp(props); };

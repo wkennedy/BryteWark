@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Email, Mailbox } from '../../../api/types';
 
 vi.mock('react-native', () => ({
@@ -31,7 +31,7 @@ vi.mock('../../../lib/queue-send', async (orig) => ({
 }));
 
 import { QuickReplyBox } from '../QuickReplyBox';
-import { renderComponent, findElement } from './hook-harness';
+import { renderComponent, findElement, resetHooks } from './hook-harness';
 import { sendEmail, patchKeywordsForEmails } from '../../../api/email';
 import { jmapClient } from '../../../api/jmap-client';
 import { useEmailStore } from '../../../stores/email-store';
@@ -54,10 +54,28 @@ const email = {
   id: 'm1', subject: 'Hi', from: [{ email: 'alice@x' }], to: [{ email: 'bob@x' }], keywords: {},
 } as unknown as Email;
 
-async function pressSend() {
-  const view = renderComponent(QuickReplyBox, { email, jmapAccountId: 'f', ownerAppAccountId: 'app1', onMoreOptions: vi.fn() });
+// No default parameter: `undefined` is a case of its own (an own-account message).
+async function pressSend(...args: [jmapAccountId?: string]) {
+  const jmapAccountId = args.length ? args[0] : 'f';
+  const view = renderComponent(QuickReplyBox, { email, jmapAccountId, ownerAppAccountId: 'app1', onMoreOptions: vi.fn() });
   findElement(view.tree(), (p) => 'onChangeText' in p)!.props.onChangeText('thanks');
   await findElement(view.tree(), (p) => typeof p.onPress === 'function' && p.disabled === false)!.props.onPress();
+}
+
+afterEach(() => resetHooks());
+
+/** Press Send offline, capturing the row instead of storing it. */
+async function queueOffline(jmapAccountId: string | undefined) {
+  useNetworkStore.setState({ online: false } as never);
+  const original = useSendQueueStore.getState().enqueue;
+  const enqueue = vi.fn(async (_row: unknown) => undefined);
+  useSendQueueStore.setState({ enqueue } as never);
+  try {
+    await pressSend(jmapAccountId);
+  } finally {
+    useSendQueueStore.setState({ enqueue: original } as never);
+  }
+  return enqueue.mock.calls[0][0] as any;
 }
 
 describe('QuickReplyBox on a shared-account message', () => {
@@ -89,17 +107,41 @@ describe('QuickReplyBox on a shared-account message', () => {
   });
 
   it('queues offline against the own account, replying to the message account', async () => {
-    useNetworkStore.setState({ online: false } as never);
-    const original = useSendQueueStore.getState().enqueue;
-    const enqueue = vi.fn(async (_row: unknown) => undefined);
-    useSendQueueStore.setState({ enqueue } as never);
-    try {
-      await pressSend();
-    } finally {
-      useSendQueueStore.setState({ enqueue: original } as never);
-    }
-    const row = enqueue.mock.calls[0][0] as any;
+    const row = await queueOffline('f');
     expect(row.jmapAccountId).toBe('c');
     expect(row.replyTo.jmapAccountId).toBe('f');
+  });
+});
+
+describe('QuickReplyBox on an own-account message', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(jmapClient, 'accountId', 'get').mockReturnValue('c');
+    vi.spyOn(jmapClient, 'connectedAccountId', 'get').mockReturnValue('c');
+    vi.spyOn(jmapClient, 'connectionGen', 'get').mockReturnValue(1);
+    vi.spyOn(jmapClient, 'undoSendHold').mockReturnValue(30);
+    useEmailStore.setState({ mailboxes, activeAccountId: 'app1' } as never);
+    useSettingsStore.setState({ identities: [{ id: 'b', name: 'Bob', email: 'bob@x', mayDelete: false }], sendDelaySeconds: 30 } as never);
+    useNetworkStore.setState({ online: true } as never);
+    useSendUndoStore.setState({ pending: null } as never);
+  });
+
+  it.each([['c'], [undefined]])('submits, flags and offers undo in the own account (message account %s)', async (account) => {
+    await pressSend(account);
+    const [, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
+    expect(identityId).toBe('b');
+    expect(sentId).toBe('own-sent');
+    expect(opts.accountId.accountId).toBe('c');
+    const [ids, , scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    expect(ids).toEqual(['m1']);
+    expect(scope.accountId).toBe('c');
+    expect(scope.gen).toBe(opts.accountId.gen);
+    expect(useSendUndoStore.getState().pending?.accountId).toBe('c');
+  });
+
+  it.each([['c'], [undefined]])('queues offline against the own account (message account %s)', async (account) => {
+    const row = await queueOffline(account);
+    expect(row.jmapAccountId).toBe('c');
+    expect(row.replyTo.jmapAccountId).toBe(account);
   });
 });
