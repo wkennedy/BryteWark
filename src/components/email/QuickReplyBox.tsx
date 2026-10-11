@@ -9,7 +9,7 @@ import { useLocaleStore } from '../../stores/locale-store';
 import { useEmailStore } from '../../stores/email-store';
 import { toast } from '../../stores/toast-store';
 import { useSendUndoStore } from '../../stores/send-undo-store';
-import { opScope } from '../../api/op-scope';
+import { opScope, inAccount } from '../../api/op-scope';
 import { sendEmail, patchKeywordsForEmails } from '../../api/email';
 import { useNetworkStore } from '../../stores/network-store';
 import { useAuthStore } from '../../stores/auth-store';
@@ -35,7 +35,7 @@ import { signatureIdentityFor, signPlainTextReply } from '../../lib/signature-ut
 import { pickEmailBody, plainTextBody } from '../../lib/email-body';
 import { htmlToPlainText } from '../../lib/compose-html';
 import { useDateRegion } from '../../lib/use-date-region';
-import { mailboxesOfAccount } from '../../lib/mailbox-tree';
+import { ownMailboxes } from '../../lib/mailbox-tree';
 import { emailDisplayDate } from '../../lib/email-date';
 import { sendErrorAlert } from '../../lib/send-errors';
 import { formatRejectedRecipients } from '../../api/jmap-result';
@@ -153,10 +153,12 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
       Alert.alert(t('common.error', 'Error'), t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
       return;
     }
-    // Sent/Drafts of the account the reply is submitted from: the message's.
-    const scoped = mailboxesOfAccount(mailboxes, jmapAccountId);
-    const sent = scoped.find((m) => m.role === 'sent');
-    const drafts = scoped.find((m) => m.role === 'drafts');
+    // Sent/Drafts of the account the reply is submitted from: the user's own,
+    // even for a message in a shared account (a group account's folders and
+    // identities are not ours to send from).
+    const own = ownMailboxes(mailboxes);
+    const sent = own.find((m) => m.role === 'sent');
+    const drafts = own.find((m) => m.role === 'drafts');
     if (!sent) {
       Alert.alert(t('common.error', 'Error'), t('email_composer.no_sent_folder', 'No Sent folder found'));
       return;
@@ -203,15 +205,16 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
       }
       // Offline at the moment of sending, before any request: queue it.
       const ownerAppAccountId = ownerRef.current;
-      // The message's own account, or else the owner's login account, read
-      // now: the box may have mounted before the connection came up.
-      const queueAccountId = jmapAccountId || (ownerAppAccountId
+      // The owner's own login account, read now: the box may have mounted
+      // before the connection came up. Never the message's, which may be a
+      // shared account the reply is not submitted from.
+      const queueAccountId = ownerAppAccountId
         ? queueJmapAccountId({ appAccountId: ownerAppAccountId, jmapAccountId: '' }, {
             liveJmapAccountId: jmapClient.connectedAccountId,
             clientServesOwner: clientServesAccount(ownerAppAccountId),
             recorded: recordedJmapAccountId,
           })
-        : '');
+        : '';
       if (!useNetworkStore.getState().online) {
         if (
           !hasQueueAccounts(ownerAppAccountId, queueAccountId)
@@ -253,11 +256,11 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
         }
         return;
       }
-      const holdFor = jmapClient.undoSendHold(sendDelaySeconds, jmapAccountId);
       // The send and the `$answered` flag after it on one connection: the
       // owner's, checked active just above. Flagged after a switch, the
       // replied-to id would name the other account's message.
-      const at = opScope(jmapAccountId);
+      const at = opScope();
+      const holdFor = jmapClient.undoSendHold(sendDelaySeconds, at.accountId);
       const result = await sendEmail(
         outgoing,
         identity.id,
@@ -270,11 +273,11 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
       useSendUndoStore.getState().recordHeldSend(result, holdFor, {
         identityId: identity.id,
         appAccountId: ownerAppAccountId ?? undefined,
-        accountId: jmapAccountId,
+        accountId: at.accountId,
         from: [{ name: identity.name, email: identity.email }],
       });
       try {
-        await patchKeywordsForEmails([email.id], { $answered: true }, at);
+        await patchKeywordsForEmails([email.id], { $answered: true }, inAccount(at, jmapAccountId));
       } catch { /* the reply is out; the flag is cosmetic */ }
       onSent?.({ ...email, keywords: { ...email.keywords, $answered: true } });
       setText('');

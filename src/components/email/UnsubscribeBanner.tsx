@@ -10,10 +10,11 @@ import { useLocaleStore } from '../../stores/locale-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useEmailStore } from '../../stores/email-store';
 import { sendEmail } from '../../api/email';
+import { opScope } from '../../api/op-scope';
 import { isValidUnsubscribeUrl, parseUnsubscribeMailto, unsubscribeConfirmDetails, isOneClickUnsubscribe } from '../../lib/unsubscribe';
 import type { ListHeaders } from '../../lib/email-headers';
 import { findReceivingIdentity } from '../../lib/email-headers';
-import { mailboxesOfAccount } from '../../lib/mailbox-tree';
+import { ownMailboxes } from '../../lib/mailbox-tree';
 
 const DISMISSED_KEY = 'webmail:unsubscribe-dismissed:v1';
 const dismissed = new Set<string>();
@@ -104,10 +105,11 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId }: Pr
         if (!mailtoFields) throw new Error('invalid mailto');
         const identity = findReceivingIdentity(identities, email) ?? identities[0];
         if (!identity) throw new Error(t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
-        // Sent/Drafts of the account the mail is submitted from: the message's.
-        const scoped = mailboxesOfAccount(mailboxes, jmapAccountId);
-        const sent = scoped.find((m) => m.role === 'sent');
-        const drafts = scoped.find((m) => m.role === 'drafts');
+        // Sent/Drafts of the account the mail is submitted from: the user's own,
+        // even when the newsletter sits in a shared account.
+        const own = ownMailboxes(mailboxes);
+        const sent = own.find((m) => m.role === 'sent');
+        const drafts = own.find((m) => m.role === 'drafts');
         if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
         await sendEmail(
           {
@@ -119,7 +121,7 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId }: Pr
           identity.id,
           sent.originalId ?? sent.id,
           undefined,
-          { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: jmapAccountId },
+          { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: opScope() },
         );
       }
       setState('done');
