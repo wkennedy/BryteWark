@@ -14,7 +14,7 @@ vi.mock('../jmap-client', () => ({
 }));
 
 import { jmapClient } from '../jmap-client';
-import { sendEmail } from '../email';
+import { createDraft, sendEmail } from '../email';
 import {
   formatRejectedRecipients,
   RecipientsRejectedError,
@@ -204,5 +204,57 @@ describe('formatRejectedRecipients', () => {
       { email: 'a@x', smtpReply: '550 5.1.2 No' },
       { email: 'b@y', smtpReply: '' },
     ])).toBe('a@x (550 5.1.2 No), b@y');
+  });
+});
+
+// Email ids collide across accounts: a draft opened from a shared account is
+// destroyed only in that account, never in the one the new copy goes to.
+describe('draft destroys name the draft\'s own account', () => {
+  /** [accountId, ids] of every Email/set destroy issued. */
+  function destroys(): [string, string[]][] {
+    return mockRequest.mock.calls.flatMap(([calls]) =>
+      (calls as [string, { accountId: string; destroy?: string[] }][])
+        .filter(([method, args]) => method === 'Email/set' && args.destroy)
+        .map(([, args]) => [args.accountId, args.destroy!] as [string, string[]]),
+    );
+  }
+
+  it('createDraft saves in the own account and destroys the previous version in its account', async () => {
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { created: { draft: { id: 'new-1' } } }, '0']] });
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { destroyed: ['m1'] }, '0']] });
+    await expect(createDraft(OUTGOING, 'drafts-1', 'm1', undefined, 'f')).resolves.toBe('new-1');
+    const create = mockRequest.mock.calls[0][0][0] as [string, { accountId: string; create?: unknown }];
+    expect(create[0]).toBe('Email/set');
+    expect(create[1].accountId).toBe('acc-1');
+    expect(create[1].create).toBeDefined();
+    expect(destroys()).toEqual([['f', ['m1']]]);
+  });
+
+  it('createDraft without a previous account destroys in the save account, as before', async () => {
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { created: { draft: { id: 'new-1' } } }, '0']] });
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { destroyed: ['m1'] }, '0']] });
+    await createDraft(OUTGOING, 'drafts-1', 'm1');
+    expect(destroys()).toEqual([['acc-1', ['m1']]]);
+  });
+
+  it('createDraft still destroys a previous version that has the new id in another account', async () => {
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { created: { draft: { id: 'm1' } } }, '0']] });
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { destroyed: ['m1'] }, '0']] });
+    await createDraft(OUTGOING, 'drafts-1', 'm1', undefined, 'f');
+    expect(destroys()).toEqual([['f', ['m1']]]);
+  });
+
+  it('createDraft never destroys the copy it just saved', async () => {
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { created: { draft: { id: 'm1' } } }, '0']] });
+    await createDraft(OUTGOING, 'drafts-1', 'm1', undefined, 'acc-1');
+    expect(destroys()).toEqual([]);
+  });
+
+  it('sendEmail destroys the old draft in draftAccountId', async () => {
+    respond([['EmailSubmission/get', { list: [{ id: 'sub-9', deliveryStatus: {} }] }, 'deliveryStatus']]);
+    mockRequest.mockResolvedValueOnce({ methodResponses: [['Email/set', { destroyed: ['m1'] }, '0']] });
+    await sendEmail(OUTGOING, 'id-1', 'sent-1', undefined, { draftId: 'm1', draftAccountId: 'f' });
+    expect((mockRequest.mock.calls[0][0][0] as [string, { accountId: string }])[1].accountId).toBe('acc-1');
+    expect(destroys()).toEqual([['f', ['m1']]]);
   });
 });

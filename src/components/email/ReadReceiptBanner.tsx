@@ -7,12 +7,12 @@ import { useColors } from '../../theme/colors';
 import { useLocaleStore } from '../../stores/locale-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useEmailStore, requireShownAccountScope, isShownAccount } from '../../stores/email-store';
-import type { OpScope } from '../../api/op-scope';
+import { inAccount, type OpScope } from '../../api/op-scope';
 import { toast } from '../../stores/toast-store';
 import { sendReadReceipt, patchKeywordsForEmails } from '../../api/email';
 import { jmapClient } from '../../api/jmap-client';
 import { findReceivingIdentity } from '../../lib/email-headers';
-import { mailboxesOfAccount } from '../../lib/mailbox-tree';
+import { ownMailboxes } from '../../lib/mailbox-tree';
 
 interface Props {
   email: Email;
@@ -85,10 +85,11 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
   const send = React.useCallback(async (automatic: boolean) => {
     if (!identity) return;
     // Never from another account's identity: refused once another is shown.
-    const at = requireShownAccountScope(ownerAppAccountId, jmapAccountId);
-    // Sent of the account the receipt is submitted from: the message's.
-    const scoped = mailboxesOfAccount(mailboxes, jmapAccountId);
-    const sent = scoped.find((m) => m.role === 'sent');
+    // The receipt goes out from the user's own account; `$mdnsent` is set in
+    // the message's, on the same connection.
+    const at = requireShownAccountScope(ownerAppAccountId);
+    // Sent of the account the receipt is submitted from: the user's own.
+    const sent = ownMailboxes(mailboxes).find((m) => m.role === 'sent');
     if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
     await sendReadReceipt({
       to: requestedBy,
@@ -108,7 +109,7 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
         { recipient: identity.email },
       ),
     });
-    await flagSent(at);
+    await flagSent(inAccount(at, jmapAccountId));
   }, [identity, mailboxes, requestedBy, jmapAccountId, ownerAppAccountId, email.messageId, email.subject, t, flagSent]);
 
   // "always" mode: auto-send once when the message is actually displayed.

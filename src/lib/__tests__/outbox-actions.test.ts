@@ -4,10 +4,12 @@ const calls: string[] = [];
 const state = {
   entries: {} as Record<string, unknown[]>, active: 'A', serves: true, discardFails: false, createFails: false,
   enqueued: [] as unknown[], onBoxes: undefined as undefined | (() => void),
+  flags: { list: [] as unknown[], notFound: [] as string[] },
 };
 
 vi.mock('../../api/email', () => ({
   createDraft: vi.fn(async () => { calls.push('createDraft'); if (state.createFails) throw new Error('net'); return 'd1'; }),
+  getEmailFlags: vi.fn(async () => { calls.push('flags'); return state.flags; }),
 }));
 vi.mock('../../api/sent-lookup', () => ({
   resolveSendMailboxes: vi.fn(async () => { calls.push('boxes'); state.onBoxes?.(); return { draftsId: 'drafts' }; }),
@@ -42,9 +44,10 @@ vi.mock('../../stores/send-queue-store', () => ({
   },
 }));
 
+import { JMAPMethodError } from '../../api/jmap-result';
 import { requeueAndFlush, saveEntryAsDraft, sendAgain, outboxErrorMessage, OutboxActionError } from '../outbox-actions';
 import { ProofLookupError, ResendTooRecentError } from '../send-queue-replay';
-import { createDraft } from '../../api/email';
+import { createDraft, getEmailFlags } from '../../api/email';
 
 const e = (s: string) => ({ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: s, outgoing: { subject: 'x' } }) as never;
 
@@ -57,6 +60,7 @@ beforeEach(() => {
   state.createFails = false;
   state.enqueued = [];
   state.onBoxes = undefined;
+  state.flags = { list: [], notFound: [] };
   proof.result = 'not_found';
   state.entries = { A: [{ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: 'uncertain', outgoing: { subject: 'x' } }] };
 });
@@ -104,8 +108,33 @@ describe('outbox actions', () => {
 
   it('replaces the entry draft like autosave', async () => {
     state.entries = { A: [{ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: 'queued', draftId: 'old', outgoing: { subject: 'x' } }] };
+    state.flags = { list: [{ id: 'old', keywords: { $draft: true }, mailboxIds: { drafts: true } }], notFound: [] };
     await saveEntryAsDraft(e('queued'));
+    expect(getEmailFlags).toHaveBeenCalledWith(['old'], 'jA');
     expect(createDraft).toHaveBeenCalledWith({ subject: 'x' }, 'drafts', 'old', 'jA');
+    expect(calls).toEqual(['discard', 'boxes', 'flags', 'createDraft']);
+  });
+
+  // An old row's draft id may come from another account; here it can name
+  // an ordinary message, which replacing the draft would destroy.
+  it('does not replace an email that is not a draft, or not in Drafts', async () => {
+    state.entries = { A: [{ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: 'queued', draftId: 'old', outgoing: { subject: 'x' } }] };
+    state.flags = { list: [{ id: 'old', keywords: { $seen: true }, mailboxIds: { inbox: true } }], notFound: [] };
+    await saveEntryAsDraft(e('queued'));
+    expect(createDraft).toHaveBeenCalledWith({ subject: 'x' }, 'drafts', undefined, 'jA');
+
+    vi.mocked(createDraft).mockClear();
+    state.entries = { A: [{ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: 'queued', draftId: 'old', outgoing: { subject: 'x' } }] };
+    state.flags = { list: [{ id: 'old', keywords: { $draft: true }, mailboxIds: { inbox: true } }], notFound: [] };
+    await saveEntryAsDraft(e('queued'));
+    expect(createDraft).toHaveBeenCalledWith({ subject: 'x' }, 'drafts', undefined, 'jA');
+  });
+
+  it('saves without replacing when the server refuses the draft read', async () => {
+    state.entries = { A: [{ id: '1', appAccountId: 'A', jmapAccountId: 'jA', state: 'queued', draftId: 'old', outgoing: { subject: 'x' } }] };
+    vi.mocked(getEmailFlags).mockRejectedValueOnce(new JMAPMethodError('forbidden', 'no'));
+    await saveEntryAsDraft(e('queued'));
+    expect(createDraft).toHaveBeenCalledWith({ subject: 'x' }, 'drafts', undefined, 'jA');
   });
 
   it('creates nothing when discard rejects (a flush won)', async () => {

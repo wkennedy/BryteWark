@@ -853,3 +853,15 @@ Run on the x86_64 emulator only (the user's choice), signed in to the real accou
 - A live system font size change sends the app back to the Inbox (the activity is recreated).
 - Drafts and Trash icons differ slightly between the drawer and folder settings.
 
+
+## Shared-account mail hotfix (2026-10-11)
+
+Plan: `docs/superpowers/plans/2026-10-11-shared-account-mail-hotfix.md`. It fixes the live bugs found while researching shared-account sending (decision D8-A: hotfix first). Quick reply, unsubscribe and read receipts now send from the user's own account. Shared drafts are destroyed only in their own account. The queue replay checks the (identity id, From) pair in the target account, and checks that a queued draft id is still a draft before destroying it.
+
+### Left open
+- **Wrong hold label.** A queued row whose identity doesn't match is held as `account_unavailable`, and the Outbox says the account is unavailable. A distinct `identity_unavailable` reason comes with full offline queueing for group identities (D5-A).
+- **Churn on served shared accounts.** A mismatched row on a shared account that is still served, and that can't be restamped (attempted before, or has attachments), is released and held again on every flush. That costs one `Identity/get` per account per pass. The user can discard it.
+- **Wildcard identities.** A row from a wildcard identity whose From override lies outside the identity's domain is now held instead of sent.
+- **Untested screen wiring.** ComposeScreen's draft-account wiring (autosave, discard-on-leave, send, the reply-flag scope) is checked only by typecheck and review, because there are no screen tests.
+- **Restamped rows lose the reply flag.** A restamped old quick-reply row never sets `$answered` on the original, because the restamp drops the replied-to ids.
+- **Quick-reply From on group mail.** Quick reply on mail sent to a group address answers from your own primary identity. Sending as the group comes with the shared-account sending feature.

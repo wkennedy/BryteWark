@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { hasQueueAccounts } from '../queue-send';
 import {
   composerAccountLabel, composerOwnerAtMount, composerSwitchBackActions, isComposerAccountActive, isComposerOwnerActive,
-  queueJmapAccountId,
+  queueDraftId, queueJmapAccountId,
 } from '../composer-account';
 
 describe('composerOwnerAtMount', () => {
@@ -152,5 +152,23 @@ describe('composerSwitchBackActions', () => {
   it('offers leaving without a server write when switching back did not take effect', () => {
     expect(composerSwitchBackActions({ ownerRegistered: true, switchFailed: true }))
       .toEqual(['cancel', 'discard', 'copyAndClose']);
+  });
+});
+
+describe('queueDraftId', () => {
+  it('drops a draft that lives in another account than the row', () => {
+    expect(queueDraftId('m1', 'f', 'c', 'c')).toBeUndefined();
+  });
+
+  it('keeps an own draft (null account) on an own row', () => {
+    expect(queueDraftId('m1', null, 'c', 'c')).toBe('m1');
+  });
+
+  it('keeps a draft whose account is the own primary', () => {
+    expect(queueDraftId('m1', 'c', 'c', 'c')).toBe('m1');
+  });
+
+  it('has nothing to keep without a draft', () => {
+    expect(queueDraftId(null, null, 'c', 'c')).toBeUndefined();
   });
 });

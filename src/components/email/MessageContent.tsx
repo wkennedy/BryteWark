@@ -123,7 +123,7 @@ export function MessageContent({
           email={email}
           list={headerInfo.list}
           messageKey={headerInfo.messageId ?? email.id}
-          jmapAccountId={jmapAccountId}
+          appAccountId={appAccountId}
         />
       )}
 

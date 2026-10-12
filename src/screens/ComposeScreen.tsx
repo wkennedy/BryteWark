@@ -44,7 +44,7 @@ import { useAccountStore } from '../stores/account-store';
 import { useAuthStore } from '../stores/auth-store';
 import {
   composerAccountLabel, composerOwnerAtMount, composerSwitchBackActions, isComposerOwnerActive,
-  liveComposerOwnerCheck, queueJmapAccountId, type SwitchBackAction,
+  liveComposerOwnerCheck, queueDraftId, queueJmapAccountId, type SwitchBackAction,
 } from '../lib/composer-account';
 import { clientServesAccount, recordedJmapAccountId } from '../lib/active-client-account';
 import { useSendUndoStore } from '../stores/send-undo-store';
@@ -57,6 +57,7 @@ import {
 } from '../api/email';
 import { jmapClient } from '../api/jmap-client';
 import { formatRejectedRecipients } from '../api/jmap-result';
+import { inAccount, opScope } from '../api/op-scope';
 import { sendErrorAlert } from '../lib/send-errors';
 import { uploadBlob, uploadBytes } from '../api/blob';
 import { buildReplyRecipients, type ReplySource } from '../lib/reply-recipients';
@@ -1451,6 +1452,11 @@ export default function ComposeScreen({ route, navigation }: Props) {
   // Snapshot at the last successful draft save (null = never saved).
   const lastSavedRef = React.useRef<string | null>(draft ? baselineRef.current : null);
   const draftIdRef = React.useRef<string | null>(draft?.id ?? null);
+  // The JMAP account draftIdRef lives in; null for the user's own. A draft
+  // opened from a shared account is replaced at its first save by a copy in
+  // the own Drafts, and every destroy of the old id names its account: email
+  // ids repeat across accounts.
+  const draftAccountRef = React.useRef<string | null>(draft?.jmapAccountId ?? null);
   const messageIdRef = React.useRef<string | null>(draft?.messageId?.[0] ?? null);
   const inflightSaveRef = React.useRef<Promise<string | null> | null>(null);
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1706,8 +1712,11 @@ export default function ComposeScreen({ route, navigation }: Props) {
         setDraftStatus('idle');
         return draftIdRef.current;
       }
-      const id = await createDraft(outgoing, draftsMailbox.id, draftIdRef.current ?? undefined);
+      const id = await createDraft(
+        outgoing, draftsMailbox.id, draftIdRef.current ?? undefined, undefined, draftAccountRef.current ?? undefined,
+      );
       draftIdRef.current = id;
+      draftAccountRef.current = null;
       lastSavedRef.current = snapshot;
       lastSaveAtRef.current = Date.now();
       setDraftStatus('saved');
@@ -1825,10 +1834,16 @@ export default function ComposeScreen({ route, navigation }: Props) {
     // A draft this session created by autosave goes with the discard; a
     // re-opened draft keeps its last saved version.
     const autosaved = draftIdRef.current;
+    const autosavedAccount = draftAccountRef.current;
     if (autosaved && !draft) {
       void (async () => {
         try { await inflightSaveRef.current; } catch { /* ignore */ }
-        const id = draftIdRef.current ?? autosaved;
+        // The id and its account are read together after the wait: the save
+        // that just finished set both. Only a new message gets here (!draft),
+        // so its draft is the own account's either way.
+        const latest = draftIdRef.current;
+        const id = latest ?? autosaved;
+        const account = (latest ? draftAccountRef.current : autosavedAccount) ?? undefined;
         // The composer is already closed; a switch during the wait leaves the
         // draft in the owner's Drafts rather than destroying an id in the
         // other account.
@@ -1836,7 +1851,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
           console.warn('[compose] discard skipped: account changed');
           return;
         }
-        destroyEmails([id]).catch((err) => console.warn('[compose] discard failed', err));
+        destroyEmails([id], account).catch((err) => console.warn('[compose] discard failed', err));
       })();
     }
     allowLeaveRef.current = true;
@@ -2688,7 +2703,9 @@ export default function ComposeScreen({ route, navigation }: Props) {
             jmapAccountId: queueAccountId,
             identityId: (submissionIdentity ?? primaryIdentity).id,
             outgoing: queued,
-            draftId: draftIdRef.current,
+            // Replay destroys it in the row's account: a draft still in a
+            // shared account stays where it is.
+            draftId: queueDraftId(draftIdRef.current, draftAccountRef.current, queueAccountId, queueAccountId),
             scheduledAt,
             replyTo: replyTo?.originalEmailId
               ? {
@@ -2725,14 +2742,23 @@ export default function ComposeScreen({ route, navigation }: Props) {
     setSending(true);
     try {
       const outgoing = buildOutgoing(primaryIdentity, liveBodyHtml, { forDraft: false });
+      // One connection for the send and the reply flag after it: the user's
+      // own account, as before; the flag goes to the original's account on it.
+      const at = opScope();
       const result = await sendEmail(
         outgoing,
         (submissionIdentity ?? primaryIdentity).id,
         sentMailbox.id,
         holdForSeconds,
-        { draftsMailboxId: draftsMailbox?.id, draftId: draftIdRef.current ?? undefined },
+        {
+          draftsMailboxId: draftsMailbox?.id,
+          draftId: draftIdRef.current ?? undefined,
+          draftAccountId: draftAccountRef.current ?? undefined,
+          accountId: at,
+        },
       );
       draftIdRef.current = null;
+      draftAccountRef.current = null;
       lastSavedRef.current = null;
       if (result.filingWarning) {
         console.warn('[compose] post-send filing warning:', result.filingWarning);
@@ -2749,7 +2775,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
         void patchKeywordsForEmails(
           [replyTo.originalEmailId],
           { [mode === 'forward' ? '$forwarded' : '$answered']: true },
-          replyTo.jmapAccountId,
+          inAccount(at, replyTo.jmapAccountId),
         ).catch(() => undefined);
       }
       // People you reply to are people you trust: allow their remote content

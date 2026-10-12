@@ -25,7 +25,10 @@
 //   the one exception is `account_unavailable` on an entry never attempted,
 //   released once the session serves that account again, or re-stamped onto
 //   the session's primary when that holds the entry's identity and address
-//   (releaseAccountHold, restampTarget).
+//   (releaseAccountHold, restampTarget). A served account with no identity
+//   sending as the entry holds it the same way, and may re-stamp it too;
+// - a queued `draftId` is destroyed with the send only while it still names
+//   a draft in the entry's account (confirmedDraftId).
 // A queue replays only through its own account: entries of another app
 // account wait until it is active again (no detached clients).
 
@@ -33,7 +36,10 @@ import { AuthenticationError, jmapClient } from '../api/jmap-client';
 import { destroyEmails, getEmailFlags, patchKeywordsForEmails, sendEmail } from '../api/email';
 import { getIdentities } from '../api/identity';
 import type { Identity } from '../api/types';
-import { RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient } from '../api/jmap-result';
+import {
+  JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient,
+} from '../api/jmap-result';
+import { isCurrentScope, opScope, type OpScope } from '../api/op-scope';
 import {
   findCopiesByMessageId,
   findSubmissionsForEmails,
@@ -48,6 +54,7 @@ import { activeAppAccountId, clientServesActiveAccount } from './active-client-a
 import { trustRecipients, trustedSendersBookSyncOn } from './trust-recipients';
 import { isStaleLoad } from './network-error';
 import { mayRestamp, restampTarget } from './queue-restamp';
+import { confirmedDraftId } from './queued-draft';
 
 /** How far before the attempt the copy lookup starts (generous: device clocks drift). */
 export const RECONCILE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -438,16 +445,26 @@ async function releaseAccountHold(entry: QueuedSend, identitiesOf: PrimaryIdenti
  * again after the identities load: the app account, the primary and whether
  * the old account came back may all have changed meanwhile. The store's
  * restamp re-checks the entry itself. Resolves true when it was re-stamped.
+ *
+ * `mismatchOn`: the entry's account is served but, on that connection, has
+ * no identity sending as the entry (sendOne). That account cannot send it
+ * either, so it counts as not served, as long as the connection is still
+ * the one that check ran on.
  */
-async function restampOntoPrimary(entry: QueuedSend, identitiesOf: PrimaryIdentities): Promise<boolean> {
+async function restampOntoPrimary(
+  entry: QueuedSend,
+  identitiesOf: PrimaryIdentities,
+  mismatchOn?: OpScope,
+): Promise<boolean> {
   const primaryId = jmapClient.connectedAccountId;
   // Most held entries can never move: ask the server nothing for them.
   if (!primaryId || primaryId === entry.jmapAccountId || !mayRestamp(entry)) return false;
   const identities = await identitiesOf(primaryId);
   if (!identities || !canReplay(entry.appAccountId) || jmapClient.connectedAccountId !== primaryId) return false;
+  if (mismatchOn && !isCurrentScope(mismatchOn)) return false;
   const target = restampTarget(entry, {
     primaryId,
-    servesEntryAccount: servesJmapAccount(entry.jmapAccountId),
+    servesEntryAccount: !mismatchOn && servesJmapAccount(entry.jmapAccountId),
     identities,
   });
   if (!target) return false;
@@ -460,9 +477,56 @@ async function restampOntoPrimary(entry: QueuedSend, identitiesOf: PrimaryIdenti
   }
 }
 
+const normalizedAddress = (email: string | undefined): string => (email ?? '').trim().toLowerCase();
+
+/**
+ * Whether `identities` hold the entry's identity id with an address the
+ * message is sent as: the header From, or the identity's own address the
+ * composer put on the envelope behind a sub-address (`envelopeMailFrom`) or a
+ * From override (`envelopeFallbackMailFrom`). A wildcard identity
+ * ("*@example.com") covers a From in its domain.
+ */
+function identityMatches(entry: QueuedSend, identities: readonly Identity[]): boolean {
+  const from = normalizedAddress(entry.outgoing.from?.[0]?.email);
+  if (!from) return false;
+  const identity = identities.find((i) => i.id === entry.identityId);
+  const own = normalizedAddress(identity?.email);
+  if (!own) return false;
+  if (own.startsWith('*@')) return from.endsWith(own.slice(1));
+  return [from, entry.outgoing.envelopeMailFrom, entry.outgoing.envelopeFallbackMailFrom]
+    .some((address) => normalizedAddress(address) === own);
+}
+
+/** A JMAP account's identities read on a scope; rejects as getIdentities does. */
+type AccountIdentities = (at: OpScope) => Promise<readonly Identity[]>;
+
+/**
+ * Reads each account's identities at most once per connection for one flush
+ * pass, so N rows of one account make one Identity/get.
+ */
+function accountIdentitiesOnce(): AccountIdentities {
+  const reads = new Map<string, Promise<readonly Identity[]>>();
+  return (at) => {
+    const key = `${at.gen}:${at.accountId}`;
+    let read = reads.get(key);
+    if (!read) {
+      read = getIdentities(at);
+      reads.set(key, read);
+    }
+    return read;
+  };
+}
+
 /** Send one `queued` entry. Returns true when the flush must stop. */
-async function sendOne(entry: QueuedSend): Promise<boolean> {
+async function sendOne(
+  entry: QueuedSend,
+  identitiesOf: AccountIdentities,
+  primaryIdentitiesOf: PrimaryIdentities,
+): Promise<boolean> {
   const store = useSendQueueStore.getState();
+  // One connection for every request to the row's account: a check made on
+  // one connection proves nothing about a send on the next.
+  const at = opScope(entry.jmapAccountId);
   const holdFor = holdForSeconds(entry.sendAt);
   if (holdFor === null) {
     console.warn('[send-queue] unreadable sendAt, not sending', entry.id);
@@ -472,7 +536,7 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
   let sentId: string | undefined;
   let draftsId: string | undefined;
   try {
-    ({ sentId, draftsId } = await resolveSendMailboxes(entry.jmapAccountId));
+    ({ sentId, draftsId } = await resolveSendMailboxes(at));
   } catch (err) {
     console.warn('[send-queue] could not resolve Sent, stopping:', err);
     return true;
@@ -488,6 +552,47 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
     console.warn('[send-queue] this account has no Drafts folder; not replaying', entry.id);
     await holdEntry(entry, 'no_drafts');
     return false;
+  }
+  // Identity ids repeat across accounts: a row queued with one account's
+  // identity id against another (a quick reply from a shared folder, before
+  // it queued on the own account) would send from whatever identity has
+  // that id there. The id must name the From address in the row's account.
+  let identities: readonly Identity[];
+  try {
+    identities = await identitiesOf(at);
+  } catch (err) {
+    if (!(err instanceof JMAPMethodError)) {
+      console.warn('[send-queue] could not read the identities, stopping:', err);
+      return true;
+    }
+    // The server answered but gives no identities for that account.
+    console.warn('[send-queue] the account gives no identities; not replaying', entry.id, err);
+    identities = [];
+  }
+  if (!identityMatches(entry, identities)) {
+    console.warn('[send-queue] the identity does not send as From in this account; not replaying', entry.id);
+    await holdEntry(entry, 'account_unavailable');
+    // An own identity id on a shared account (an old quick reply): the
+    // primary may hold it, under the usual re-stamp rules. Otherwise it stays
+    // held. A re-stamped entry names the primary, so this recurses once.
+    const held = liveEntry(entry.appAccountId, entry.id);
+    if (held && (await restampOntoPrimary(held, primaryIdentitiesOf, at))) {
+      const moved = liveEntry(entry.appAccountId, entry.id);
+      if (moved && moved.state === 'queued' && !moved.heldReason && canReplay(entry.appAccountId)
+        && servesJmapAccount(moved.jmapAccountId)) {
+        return sendOne(moved, identitiesOf, primaryIdentitiesOf);
+      }
+    }
+    return false;
+  }
+  // Email ids repeat across accounts too: an old row's draft id may name an
+  // ordinary message here, which the send would destroy.
+  let draftId: string | undefined;
+  try {
+    draftId = await confirmedDraftId(entry.draftId, at, draftsId);
+  } catch (err) {
+    console.warn('[send-queue] could not read the draft, stopping:', err);
+    return true;
   }
   if (!canReplay(entry.appAccountId)) return true;
 
@@ -513,8 +618,8 @@ async function sendOne(entry: QueuedSend): Promise<boolean> {
   try {
     result = await sendEmail(entry.outgoing, entry.identityId, sentId, holdFor, {
       draftsMailboxId: draftsId,
-      draftId: entry.draftId,
-      accountId: entry.jmapAccountId,
+      draftId,
+      accountId: at,
     });
   } catch (err) {
     const outcome = classifySendError(err);
@@ -562,6 +667,7 @@ async function flushOnce(): Promise<'done' | 'stopped'> {
   const ordered = [...(useSendQueueStore.getState().entries[appId] ?? [])]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const identitiesOf = primaryIdentitiesOnce();
+  const accountIdentitiesOf = accountIdentitiesOnce();
 
   for (const snapshot of ordered) {
     if (!canReplay(appId)) return 'stopped';
@@ -586,7 +692,7 @@ async function flushOnce(): Promise<'done' | 'stopped'> {
     }
     // `failed` waits for the user; `sending` belongs to an attempt in progress.
     if (entry.state !== 'queued') continue;
-    if (await sendOne(entry)) return 'stopped';
+    if (await sendOne(entry, accountIdentitiesOf, identitiesOf)) return 'stopped';
   }
   return 'done';
 }

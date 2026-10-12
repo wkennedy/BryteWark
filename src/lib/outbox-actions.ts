@@ -6,6 +6,7 @@ import { resolveSendMailboxes } from '../api/sent-lookup';
 import { useAccountStore } from '../stores/account-store';
 import { useSendQueueStore, SendQueueStateError, type QueuedSend } from '../stores/send-queue-store';
 import { clientServesActiveAccount } from './active-client-account';
+import { confirmedDraftId } from './queued-draft';
 import { generateUUID } from './uuid';
 import { checkSentBeforeResend, flushSendQueue, ProofLookupError, ResendTooRecentError } from './send-queue-replay';
 
@@ -100,6 +101,9 @@ export async function saveEntryAsDraft(entry: QueuedSend): Promise<void> {
   try {
     const { draftsId } = await resolveSendMailboxes(captured.jmapAccountId);
     if (!draftsId) throw new Error('No Drafts folder');
+    // An old row's draft id may come from another account: replace it only
+    // while it still names a draft here.
+    const previousDraftId = await confirmedDraftId(captured.draftId, captured.jmapAccountId, draftsId);
     // Re-checked right before the write: a switch can land during the lookup.
     // Nothing was written, so the entry goes back as it was.
     try {
@@ -109,7 +113,7 @@ export async function saveEntryAsDraft(entry: QueuedSend): Promise<void> {
       throw switched;
     }
     // Replaces the entry's own server draft the way the composer's autosave does.
-    await createDraft(captured.outgoing, draftsId, captured.draftId, captured.jmapAccountId);
+    await createDraft(captured.outgoing, draftsId, previousDraftId, captured.jmapAccountId);
   } catch (err) {
     if (err instanceof OutboxActionError) throw err;
     // Back as `failed`, never `queued`: the draft may have been created after

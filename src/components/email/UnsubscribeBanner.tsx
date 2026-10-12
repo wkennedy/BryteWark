@@ -8,12 +8,12 @@ import { spacing, radius, typography, type ThemePalette } from '../../theme/toke
 import { useColors } from '../../theme/colors';
 import { useLocaleStore } from '../../stores/locale-store';
 import { useSettingsStore } from '../../stores/settings-store';
-import { useEmailStore } from '../../stores/email-store';
+import { useEmailStore, requireShownAccountScope } from '../../stores/email-store';
 import { sendEmail } from '../../api/email';
 import { isValidUnsubscribeUrl, parseUnsubscribeMailto, unsubscribeConfirmDetails, isOneClickUnsubscribe } from '../../lib/unsubscribe';
 import type { ListHeaders } from '../../lib/email-headers';
 import { findReceivingIdentity } from '../../lib/email-headers';
-import { mailboxesOfAccount } from '../../lib/mailbox-tree';
+import { ownMailboxes } from '../../lib/mailbox-tree';
 
 const DISMISSED_KEY = 'webmail:unsubscribe-dismissed:v1';
 const dismissed = new Set<string>();
@@ -42,7 +42,11 @@ interface Props {
   list: ListHeaders;
   /** Dedupe key for dismissals (bare Message-ID, else the JMAP id). */
   messageKey: string;
-  jmapAccountId?: string;
+  /**
+   * The app account the message is shown in (the viewer's). Defaults to the
+   * one shown when the banner mounted.
+   */
+  appAccountId?: string;
 }
 
 /**
@@ -51,12 +55,14 @@ interface Props {
  * mailto: URL is sent through the account itself (handing it to the OS mail
  * app goes nowhere for most users). Dismissals are remembered per Message-ID.
  */
-export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId }: Props) {
+export function UnsubscribeBanner({ email, list, messageKey, appAccountId }: Props) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
   const identities = useSettingsStore((s) => s.identities);
   const mailboxes = useEmailStore((s) => s.mailboxes);
+  const [mountedIn] = React.useState(() => useEmailStore.getState().activeAccountId);
+  const ownerAppAccountId = appAccountId ?? mountedIn;
   const [hidden, setHidden] = React.useState(true);
   const [state, setState] = React.useState<'idle' | 'busy' | 'done' | 'error'>('idle');
 
@@ -102,12 +108,15 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId }: Pr
         }
       } else {
         if (!mailtoFields) throw new Error('invalid mailto');
+        // Never from another account's identity: refused once another is shown.
+        const at = requireShownAccountScope(ownerAppAccountId);
         const identity = findReceivingIdentity(identities, email) ?? identities[0];
         if (!identity) throw new Error(t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
-        // Sent/Drafts of the account the mail is submitted from: the message's.
-        const scoped = mailboxesOfAccount(mailboxes, jmapAccountId);
-        const sent = scoped.find((m) => m.role === 'sent');
-        const drafts = scoped.find((m) => m.role === 'drafts');
+        // Sent/Drafts of the account the mail is submitted from: the user's own,
+        // even when the newsletter sits in a shared account.
+        const own = ownMailboxes(mailboxes);
+        const sent = own.find((m) => m.role === 'sent');
+        const drafts = own.find((m) => m.role === 'drafts');
         if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
         await sendEmail(
           {
@@ -119,7 +128,7 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId }: Pr
           identity.id,
           sent.originalId ?? sent.id,
           undefined,
-          { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: jmapAccountId },
+          { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: at },
         );
       }
       setState('done');

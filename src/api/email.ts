@@ -19,7 +19,7 @@ import { generateMessageId, stripMessageIdBrackets } from '../lib/email-threadin
 import { buildMdnMessage, type MdnOptions } from '../lib/mdn';
 import { hasTruncatedDisplayedBody } from '../lib/email-body';
 import { filterHasSnippetTerms, type SearchSnippetResult } from '../lib/search-snippet';
-import { opScope, type AccountRef, type OpScope } from './op-scope';
+import { inAccount, opScope, type AccountRef, type OpScope } from './op-scope';
 import { isStaleLoad } from '../lib/network-error';
 import { t } from '../stores/locale-store';
 
@@ -1892,6 +1892,12 @@ export interface SendEmailOptions {
   draftsMailboxId?: string;
   /** Previous draft version to destroy once the submission succeeded (#849). */
   draftId?: string;
+  /**
+   * JMAP account `draftId` lives in, on the send's connection; defaults to
+   * the submitting account. Email ids repeat across accounts, so a draft
+   * opened from a shared account is destroyed only there.
+   */
+  draftAccountId?: string;
   /** Submitting account (shared/group account); defaults to the primary. */
   accountId?: AccountRef;
 }
@@ -2131,7 +2137,7 @@ export async function sendEmail(
   // rather than a failed send (#849).
   if (opts?.draftId && emailSubmissionId) {
     try {
-      await destroyEmails([opts.draftId], at);
+      await destroyEmails([opts.draftId], inAccount(at, opts.draftAccountId));
     } catch (err) {
       filingWarning = filingWarning ?? `old draft cleanup failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -2152,13 +2158,17 @@ export async function sendEmail(
  * is given it is destroyed only AFTER the replacement was created (#849): a
  * combined create+destroy would delete the last good copy when the create
  * fails (e.g. blobNotFound on a re-opened draft's attachments). Returns the
- * new draft id.
+ * new draft id. `previousDraftAccount` names the account the previous version
+ * lives in (a bare id on the save's connection, or a scope); without it, the
+ * save's own account. Email ids repeat across accounts, so a draft opened
+ * from a shared account is destroyed only there.
  */
 export async function createDraft(
   email: OutgoingEmail,
   draftsMailboxId: string,
   previousDraftId?: string,
   account?: AccountRef,
+  previousDraftAccount?: AccountRef,
 ): Promise<string> {
   const at = opScope(account);
   const { accountId } = at;
@@ -2173,9 +2183,13 @@ export async function createDraft(
   if (notCreated) throw new Error(notCreated.description || notCreated.type || 'Failed to save draft');
   const id = body.created?.draft?.id as string | undefined;
   if (!id) throw new Error('Draft save returned no id');
-  if (previousDraftId && previousDraftId !== id) {
+  const previousAt = typeof previousDraftAccount === 'object' && previousDraftAccount !== null
+    ? previousDraftAccount
+    : inAccount(at, previousDraftAccount);
+  // The same id in another account is another message.
+  if (previousDraftId && (previousDraftId !== id || previousAt.accountId !== accountId)) {
     try {
-      await destroyEmails([previousDraftId], at);
+      await destroyEmails([previousDraftId], previousAt);
     } catch (err) {
       console.warn('[email] failed to destroy previous draft version:', err);
     }
