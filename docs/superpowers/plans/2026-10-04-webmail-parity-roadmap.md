@@ -864,4 +864,14 @@ Plan: `docs/superpowers/plans/2026-10-11-shared-account-mail-hotfix.md`. It fixe
 - **Wildcard identities.** A row from a wildcard identity whose From override lies outside the identity's domain is now held instead of sent.
 - **Untested screen wiring.** ComposeScreen's draft-account wiring (autosave, discard-on-leave, send, the reply-flag scope) is checked only by typecheck and review, because there are no screen tests.
 - **Restamped rows lose the reply flag.** A restamped old quick-reply row never sets `$answered` on the original, because the restamp drops the replied-to ids.
-- **Quick-reply From on group mail.** Quick reply on mail sent to a group address answers from your own primary identity. Sending as the group comes with the shared-account sending feature.
+- **Quick-reply From on group mail.** Quick reply on mail sent to a group address answers from your own primary identity. Sending as the group comes with the shared-account sending feature. Done in acca691: quick reply can send as the group, from the group's account.
+
+## Shared-account sending (2026-10-13)
+
+Plan: `docs/superpowers/plans/2026-10-13-shared-account-sending.md`. Decisions: D5-B (no offline queueing for group identities). Sending as a group identity routes to the group's own account: its identity, Drafts and Sent, with attachments copied over by `Blob/copy`. A routed send that can't complete is refused, never sent from your own account. Checked against a throwaway Stalwart 0.16.25 with `scripts/stalwart-shared-send-it.sh`, which runs `src/api/__tests__/shared-send.it.test.ts`. That run found that Stalwart needs `urn:ietf:params:jmap:blob` in `using` for `Blob/copy` (fixed in 6191993).
+
+### Left open
+- **Offline queueing for group identities (D5-A).** Offline, a group send is refused, not queued. Queueing needs queue row schema 3, an identity check at replay, and an `identity_unavailable` hold (which also fixes the hotfix's wrong hold label).
+- **Default sender.** IdentitySettings' default-sender chooser lists only your own identities. An old team@ default still works, because your own team@ identity is an alias of the group's.
+- **Unsubscribe and read receipts** always send from your own account, even for mail in a group's folders.
+- **Hidden own duplicate.** When the group offers the same address as one of your own identities, only the group's is listed. Your own copy can be reached only by removing the group identity.

@@ -71,7 +71,7 @@ Legend for refs: WEB paths are relative to `the webmail repo`, RN paths to `the 
   - What RN does: `sendEmail` sets no `messageId`, relying on the server; RN's `src/lib/uuid.ts:6-20` already has a guarded UUID generator (Hermes fallback) so the crash class of the web fix does not apply.
   - Fix hint: optional — set `messageId: [`${generateUUID()}@${domain}`]` in `sendEmail` so the id is known before the response (useful once drafts/threading exist).
 
-- [ ] **Sending from shared/group accounts unsupported** — `P3` — `missing` (partly N/A) — deferred: RN is single-active-account; envelope/identity routing for shared accounts not implemented
+- [x] **Sending from shared/group accounts unsupported** — fixed in ae61f16, 5e55a0c, 32cb9f1, 6e5c5df, 2d89305, acca691, 6191993 — `P3` — `missing` (partly N/A) — the From sheet lists each shared account's identities; a group identity sends from the group's account and files in its Sent, attachments copied by `Blob/copy`. Checked on Stalwart 0.16.25. Offline it is refused, not queued (D5-B)
   - What WEB does: routes the submission to the identity's owning account (#461, `email-composer.tsx:2258-2274`, `lib/jmap/client.ts:3131-3134` targetAccountId) and preselects the shared folder's identity (`lib/reply-identity.ts:114-128`).
   - What RN does: `ComposeScreen.tsx:267-272` explicitly always uses the user's own Sent ("composing on behalf of a shared account isn't supported"), `getIdentities` (`src/api/identity.ts:5-12`) only queries the primary account. Replying from a shared-folder message sends as the reaching login.
   - Fix hint: low priority; if implemented, query `Identity/get` for the shared `accountId`, submit with that `accountId`, and file into that account's Sent.

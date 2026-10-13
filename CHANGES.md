@@ -1,10 +1,26 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), and a shared-account mail hotfix on `fix/shared-account-mail`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 486 of 494 are done and 8 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending on `parity/shared-account-sending`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Shared-account mail hotfix (unmerged)
+## Shared-account sending (unmerged)
+
+Branch `parity/shared-account-sending`. You can send as a group address (team@) from the group's own account, so the copy is filed in the group's Sent, as the webmail does. Checked against a throwaway Stalwart 0.16.25 (`scripts/stalwart-shared-send-it.sh`).
+
+### Improvements
+- The From sheet lists the identities of every shared account that lets you send, under the account's name, after "Your account". A folder-only share isn't listed: it can't send, even when the server says it can (ae61f16, 5e55a0c).
+- Each account's identities are cached on their own. The old cache is migrated (2668b87).
+- Sending as a group identity, from the composer or quick reply, uses the group's account, identity, Drafts and Sent. Your own Sent and Drafts are untouched. A draft you started in your own Drafts is still deleted there (6e5c5df, 2d89305, acca691).
+- An attachment on a group send is copied into the group's account first (32cb9f1, 6191993).
+- A group send is refused, and nothing is sent, when the group has no Sent or Drafts folder, when you can no longer send as that address there, or when the attachments can't be copied. It never falls back to your own account. Offline, it asks you to connect first: group sends don't wait in the Outbox (6e5c5df, 2d89305, 6191993).
+- When you reply, only your own account's addresses count as yours. A colleague's mail from team@ stays in a reply-all, unless you also own team@ (3d8a623).
+
+### Fixes
+- A wildcard identity (`*@example.org`) covers only well-formed addresses in its domain (7531d0c).
+- Quick reply still queues a reply offline when the connection isn't up yet (d341f1b).
+
+## Shared-account mail hotfix (#21)
 
 Branch `fix/shared-account-mail`. These are two account-safety bugs on mail in shared (group) folders. JMAP identity and email ids repeat across accounts, so an id used in the wrong account names something else.
 
