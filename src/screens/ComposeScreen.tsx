@@ -65,7 +65,7 @@ import { useNetworkStore } from '../stores/network-store';
 import { useSendQueueStore, SendTooLargeToQueueError, AlreadyQueuedError } from '../stores/send-queue-store';
 import { envelopeFallbackIdentity, overrideEnvelope, pickSubmissionIdentity } from '../lib/envelope-sender';
 import {
-  loadComposerSendIdentities, planComposerSend, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
+  loadComposerSendIdentities, planComposerSend, reselectIdentityId, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
   type ComposerIdentitySet,
 } from '../lib/composer-route';
 import { sendRouted } from '../lib/routed-send';
@@ -1256,6 +1256,12 @@ export default function ComposeScreen({ route, navigation }: Props) {
   // mailbox's owner when the user has an identity for it (webmail 129f545a).
   // Read once: it is the folder the message was started from. Own folders
   // resolve to nothing, so they keep the preferred identity below.
+  // A fresh list can hide the own identity chosen from the cached one behind
+  // a group's copy: the choice follows it rather than falling to the default.
+  React.useEffect(() => {
+    if (identitySet) setSelectedIdentityId((id) => reselectIdentityId(id, identitySet));
+  }, [identitySet]);
+
   const composeFromAccountEmail = React.useMemo(() => {
     const { mailboxes: all, currentMailboxId } = useEmailStore.getState();
     return resolveComposeAccountEmail(all, currentMailboxId);

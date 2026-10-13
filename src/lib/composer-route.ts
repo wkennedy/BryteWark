@@ -51,6 +51,20 @@ export function sendCapabilityAccountId(submission: SendIdentity | null, ownAcco
   return route.identityId === submission.id ? ownAccountId : route.jmapAccountId;
 }
 
+/**
+ * The chosen identity after the list changes (a cached list replaced by the
+ * fresh one): an own identity the new list hides behind a group's copy
+ * follows its alias; anything else is kept for the selection rules.
+ */
+export function reselectIdentityId(
+  selected: string | null,
+  set: Pick<ComposerIdentitySet, 'list' | 'aliases'>,
+): string | null {
+  if (!selected || set.list.some((i) => i.id === selected)) return selected;
+  const alias = resolveIdentityAlias(selected, set.aliases);
+  return alias && set.list.some((i) => i.id === alias) ? alias : selected;
+}
+
 export interface ComposerIdentitySet {
   list: SendIdentity[];
   aliases: Record<string, string>;
@@ -72,11 +86,12 @@ export function ownAccountEmails(accounts: SendableIdentities, ownAccountId: str
 
 /**
  * The composer's identities from a load, or null to keep what is shown:
- * nothing loaded, or your own account is unknown, so no identity could be
- * told apart as yours.
+ * nothing loaded, or your own account is unknown or missing from the cache,
+ * so no identity could be told apart as yours (each would get a routed id).
  */
 export function composerIdentitySet(result: ComposerIdentities, ownAccountId: string | null): ComposerIdentitySet | null {
   if (result.source === 'none' || !ownAccountId) return null;
+  if (result.source === 'cache' && !result.accounts[ownAccountId]) return null;
   return {
     ...buildSendIdentities(ownAccountId, result.accounts),
     ownAccountId,

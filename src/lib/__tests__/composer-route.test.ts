@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
-  ownAccountEmails, loadComposerSendIdentities,
+  ownAccountEmails, loadComposerSendIdentities, reselectIdentityId,
 } from '../composer-route';
 import { writeIdentityCache } from '../identity-cache';
 import { RoutedSendError } from '../routed-send';
@@ -96,6 +96,10 @@ describe('composerIdentitySet', () => {
     expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, null)).toBeNull();
     expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, '')).toBeNull();
   });
+  it('ignores a cache without your own account, so no identity of yours gets a routed id', () => {
+    const { f } = accounts;
+    expect(composerIdentitySet({ accounts: { f }, source: 'cache', error: 'x' }, 'a')).toBeNull();
+  });
 });
 
 describe('ownAccountEmails', () => {
@@ -165,5 +169,30 @@ describe('loadComposerSendIdentities', () => {
       scope: () => ({ gen: 3, accountId: 'a' }), fetch: async () => accounts, stillOwner: () => false,
     });
     expect(r.source).toBe('cache');
+  });
+});
+
+describe('reselectIdentityId', () => {
+  const id = (i: string, email: string) => ({ id: i, email, name: '', mayDelete: false });
+  // The cache had no group yet: your own team@ (c) was shown and chosen.
+  const fresh = composerIdentitySet({
+    accounts: {
+      a: { name: 'Bob', identities: [id('b', 'bob@x'), id('c', 'team@x')] },
+      f: { name: 'Team', identities: [id('b', 'team@x')] },
+    },
+    source: 'fresh',
+    error: null,
+  }, 'a')!;
+
+  it('follows a choice the fresh list hides to its group copy', () => {
+    expect(reselectIdentityId('c', fresh)).toBe('f/b');
+  });
+  it('keeps a choice still in the list, or none', () => {
+    expect(reselectIdentityId('b', fresh)).toBe('b');
+    expect(reselectIdentityId('f/b', fresh)).toBe('f/b');
+    expect(reselectIdentityId(null, fresh)).toBeNull();
+  });
+  it('keeps a choice with no alias for the selection rules to handle', () => {
+    expect(reselectIdentityId('gone', fresh)).toBe('gone');
   });
 });
