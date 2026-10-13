@@ -875,3 +875,4 @@ Plan: `docs/superpowers/plans/2026-10-13-shared-account-sending.md`. Decisions: 
 - **Default sender.** IdentitySettings' default-sender chooser lists only your own identities. An old team@ default still works, because your own team@ identity is an alias of the group's.
 - **Unsubscribe and read receipts** always send from your own account, even for mail in a group's folders.
 - **Hidden own duplicate.** When the group offers the same address as one of your own identities, only the group's is listed. Your own copy can be reached only by removing the group identity.
+- **Custom From with a group identity.** A custom From override can't be used with a group identity: the send is refused, since the server doesn't check the From against the identity. A sub-address of the group address (team+tag@) still works (2fb5826).

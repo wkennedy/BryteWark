@@ -13,6 +13,7 @@ Branch `parity/shared-account-sending`. You can send as a group address (team@) 
 - Sending as a group identity, from the composer or quick reply, uses the group's account, identity, Drafts and Sent. Your own Sent and Drafts are untouched. A draft you started in your own Drafts is still deleted there (6e5c5df, 2d89305, 3d8a623, acca691, d341f1b).
 - An attachment on a group send is copied into the group's account first (32cb9f1, 6191993).
 - A group send is refused, and nothing is sent, when the group has no Sent or Drafts folder, when you can no longer send as that address there, or when the attachments can't be copied. It never falls back to your own account. Offline, it asks you to connect first: group sends don't wait in the Outbox (6e5c5df, 2d89305, 6191993).
+- A sub-address of a group address (team+tag@) sends from the group. A custom From is refused with a group identity (2fb5826).
 
 ## Shared-account mail hotfix (#21)
 
