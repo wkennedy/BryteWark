@@ -3,12 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../jmap-client', () => ({
   jmapClient: {
     accountId: 'acc-1',
+    connectionGen: 1,
     request: vi.fn(),
+    currentSession: null as unknown,
+    getAccountName: vi.fn(),
   },
 }));
 
 import { jmapClient } from '../jmap-client';
-import { getIdentities, createIdentity, updateIdentity, deleteIdentity } from '../identity';
+import { getIdentities, getSendIdentities, createIdentity, updateIdentity, deleteIdentity } from '../identity';
 
 const mockRequest = jmapClient.request as ReturnType<typeof vi.fn>;
 
@@ -42,6 +45,55 @@ describe('identity operations', () => {
         expect.arrayContaining(['urn:ietf:params:jmap:submission']),
         { gen: 7 },
       );
+    });
+  });
+
+  describe('getSendIdentities', () => {
+    const SUB = 'urn:ietf:params:jmap:submission';
+    const client = jmapClient as unknown as {
+      currentSession: unknown;
+      getAccountName: ReturnType<typeof vi.fn>;
+    };
+    beforeEach(() => {
+      client.currentSession = {
+        accounts: {
+          d: { accountCapabilities: { [SUB]: {} } },
+          f: { accountCapabilities: { [SUB]: {} } },
+          g: { accountCapabilities: { [SUB]: {} } },
+          h: { accountCapabilities: {} },
+        },
+      };
+      client.getAccountName.mockImplementation((id: string) => (id === 'f' ? 'team@x' : undefined));
+    });
+
+    it('reads own and each submission-capable shared account, dropping a forbidden one', async () => {
+      mockRequest.mockResolvedValue({
+        methodResponses: [
+          ['Identity/get', { list: [{ id: 'b', email: 'bob@x' }] }, '0'],
+          ['Identity/get', { list: [{ id: 'b', email: 'team@x' }] }, '1'],
+          ['error', { type: 'forbidden' }, '2'],
+        ],
+      });
+      const result = await getSendIdentities({ gen: 4, accountId: 'd' });
+      const [calls, , opts] = mockRequest.mock.calls[0];
+      expect(calls.map((c: unknown[]) => [c[0], (c[1] as { accountId: string }).accountId])).toEqual([
+        ['Identity/get', 'd'], ['Identity/get', 'f'], ['Identity/get', 'g'],
+      ]);
+      expect(opts).toEqual({ gen: 4 });
+      expect(Object.keys(result)).toEqual(['d', 'f']);
+      expect(result.f).toEqual({ name: 'team@x', identities: [{ id: 'b', email: 'team@x' }] });
+      expect(result.d.name).toBe('d');
+    });
+
+    it('rejects when the own account errors', async () => {
+      mockRequest.mockResolvedValue({
+        methodResponses: [
+          ['error', { type: 'serverFail' }, '0'],
+          ['Identity/get', { list: [] }, '1'],
+          ['Identity/get', { list: [] }, '2'],
+        ],
+      });
+      await expect(getSendIdentities({ gen: 4, accountId: 'd' })).rejects.toThrow();
     });
   });
 
