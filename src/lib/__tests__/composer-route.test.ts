@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
+  ownAccountEmails,
 } from '../composer-route';
 import { RoutedSendError } from '../routed-send';
 import { pickSubmissionIdentity } from '../envelope-sender';
@@ -93,5 +94,26 @@ describe('composerIdentitySet', () => {
   it('keeps what is shown when your own account is unknown', () => {
     expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, null)).toBeNull();
     expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, '')).toBeNull();
+  });
+});
+
+describe('ownAccountEmails', () => {
+  const id = (i: string, email: string) => ({ id: i, email, name: '', mayDelete: true });
+  it('keeps your own addresses, hidden duplicates included, and no group-only ones', () => {
+    const accounts = {
+      a: { name: 'Bob', identities: [id('b', 'bob@x'), id('c', 'team@x')] },
+      f: { name: 'Team', identities: [id('b', 'team@x'), id('d', 'other@x')] },
+    };
+    expect(ownAccountEmails(accounts, 'a')).toEqual(['bob@x', 'team@x']);
+    const set = composerIdentitySet({ accounts, source: 'fresh', error: null }, 'a');
+    expect(set?.ownEmails).toEqual(['bob@x', 'team@x']);
+  });
+  it('is your own list without shared accounts', () => {
+    const accounts = { a: { name: 'Bob', identities: [id('b', 'bob@x'), id('w', '*@x')] } };
+    expect(ownAccountEmails(accounts, 'a')).toEqual(['bob@x', '*@x']);
+    expect(composerIdentitySet({ accounts, source: 'fresh', error: null }, 'a')?.ownEmails).toEqual(['bob@x', '*@x']);
+  });
+  it('is empty when your own account is missing', () => {
+    expect(ownAccountEmails({}, 'a')).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 // The composer's choices for a send from a shared account's identity, kept
 // pure so they are tested without a renderer.
 
+import type { SendableIdentities } from '../api/identity';
 import type { ComposerIdentities } from './identity-cache';
 import { RoutedSendError } from './routed-send';
 import { buildSendIdentities, routeOfIdentity, type SendIdentity } from './send-identities';
@@ -54,6 +55,18 @@ export interface ComposerIdentitySet {
   aliases: Record<string, string>;
   /** The account `list`'s own identities were read from. */
   ownAccountId: string;
+  /** Your own account's addresses, hidden duplicates included (see ownAccountEmails). */
+  ownEmails: string[];
+}
+
+/**
+ * The addresses that are "you" for reply recipients: every identity of your
+ * own account, including one the merged list hides behind a group's copy. A
+ * shared account's addresses are not yours: a colleague's mail from team@ is
+ * not self-sent, and team@ stays in a reply-all unless you own it too.
+ */
+export function ownAccountEmails(accounts: SendableIdentities, ownAccountId: string): string[] {
+  return (accounts[ownAccountId]?.identities ?? []).map((i) => i.email).filter(Boolean);
 }
 
 /**
@@ -63,5 +76,9 @@ export interface ComposerIdentitySet {
  */
 export function composerIdentitySet(result: ComposerIdentities, ownAccountId: string | null): ComposerIdentitySet | null {
   if (result.source === 'none' || !ownAccountId) return null;
-  return { ...buildSendIdentities(ownAccountId, result.accounts), ownAccountId };
+  return {
+    ...buildSendIdentities(ownAccountId, result.accounts),
+    ownAccountId,
+    ownEmails: ownAccountEmails(result.accounts, ownAccountId),
+  };
 }

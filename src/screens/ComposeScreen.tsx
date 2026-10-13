@@ -739,9 +739,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
     for (const e of [ownerEntry?.email, ownerEntry?.username, jmapClient.username]) {
       if (e && e.includes('@')) out.add(e);
     }
-    for (const i of identities) if (i.email) out.add(i.email);
+    // Your own account's addresses only: a shared account's are not "you".
+    for (const e of identitySet?.ownEmails ?? []) out.add(e);
     return Array.from(out);
-  }, [identities]);
+  }, [identitySet]);
 
   const replySource = React.useMemo<ReplySource | undefined>(
     () => (replyTo
