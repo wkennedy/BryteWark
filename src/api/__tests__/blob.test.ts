@@ -47,6 +47,7 @@ vi.mock('../jmap-client', () => ({
     assertAccountInSession: vi.fn(),
     authHeaderFor: () => 'Basic dXNlcjpwYXNz', isCurrent: () => true,
     request: vi.fn(),
+    hasCapability: vi.fn(() => false),
   },
 }));
 
@@ -253,6 +254,28 @@ describe('copyBlobs', () => {
       [CAPABILITIES.CORE],
       { gen: 7 },
     );
+  });
+
+  it('names the blob capability when the session advertises it (Stalwart requires it)', async () => {
+    vi.mocked(jmapClient.hasCapability).mockImplementationOnce((urn) => urn === CAPABILITIES.BLOB);
+    reply({ copied: { x: 'X' } });
+    await copyBlobs('d', to, ['x']);
+    expect(vi.mocked(jmapClient.request).mock.calls[0][1]).toEqual([CAPABILITIES.CORE, CAPABILITIES.BLOB]);
+  });
+
+  it('turns a refused call into BlobCopyError for every requested blob', async () => {
+    vi.mocked(jmapClient.request).mockResolvedValueOnce({
+      methodResponses: [['error', { type: 'unknownMethod', description: 'requires urn:ietf:params:jmap:blob' }, '0']],
+    } as never);
+    const err = await copyBlobs('d', to, ['x', 'y', 'x']).catch((e) => e);
+    expect(err).toBeInstanceOf(BlobCopyError);
+    expect(err.blobIds).toEqual(['x', 'y']);
+  });
+
+  it('lets a transport error through unchanged', async () => {
+    const boom = new TypeError('Network request failed');
+    vi.mocked(jmapClient.request).mockRejectedValueOnce(boom);
+    await expect(copyBlobs('d', to, ['x'])).rejects.toBe(boom);
   });
 
   it('throws BlobCopyError naming the blobs the server did not copy', async () => {

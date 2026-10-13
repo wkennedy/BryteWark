@@ -2,7 +2,7 @@ import { File } from 'expo-file-system';
 import type * as LegacyFileSystemTypes from 'expo-file-system/legacy';
 import { jmapClient, StaleLoadError } from './jmap-client';
 import { opScope, type AccountRef, type OpScope } from './op-scope';
-import { requireMethodResult } from './jmap-result';
+import { JMAPMethodError, requireMethodResult } from './jmap-result';
 import { CAPABILITIES } from './types';
 import { getClientCertAlias, secureFetch } from '../lib/client-cert';
 import { observeServerFetch, reportServerResponse } from '../lib/server-reachability';
@@ -301,12 +301,24 @@ export async function copyBlobs(
   const unique = [...new Set(blobIds)];
   if (unique.length === 0) return {};
   if (fromAccountId === to.accountId) return Object.fromEntries(unique.map((id) => [id, id]));
+  // Stalwart answers unknownMethod unless `using` names the blob capability
+  // (RFC 9404); a server that doesn't advertise it isn't sent it.
+  const using = jmapClient.hasCapability(CAPABILITIES.BLOB)
+    ? [CAPABILITIES.CORE, CAPABILITIES.BLOB]
+    : [CAPABILITIES.CORE];
   const res = await jmapClient.request(
     [['Blob/copy', { fromAccountId, accountId: to.accountId, blobIds: unique }, '0']],
-    [CAPABILITIES.CORE],
+    using,
     { gen: to.gen },
   );
-  const body = requireMethodResult<{ copied?: Record<string, string> | null }>(res, '0', 'Blob/copy');
+  let body: { copied?: Record<string, string> | null };
+  try {
+    body = requireMethodResult<{ copied?: Record<string, string> | null }>(res, '0', 'Blob/copy');
+  } catch (e) {
+    // The server refused the call itself: nothing was copied.
+    if (e instanceof JMAPMethodError) throw new BlobCopyError(unique);
+    throw e;
+  }
   const copied = body.copied ?? {};
   const missing = unique.filter((id) => typeof copied[id] !== 'string');
   if (missing.length > 0) throw new BlobCopyError(missing);
