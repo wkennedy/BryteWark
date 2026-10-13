@@ -20,6 +20,10 @@ vi.mock('../../../api/email', () => ({
   sendEmail: vi.fn(async () => ({ emailId: 'e1', emailSubmissionId: 's1', scheduled: true })),
   patchKeywordsForEmails: vi.fn(async () => undefined),
 }));
+vi.mock('../../../lib/routed-send', async (orig) => ({
+  ...(await orig<typeof import('../../../lib/routed-send')>()),
+  sendRouted: vi.fn(async () => ({ emailId: 'e2', emailSubmissionId: 's2', scheduled: true, accountId: 'f' })),
+}));
 vi.mock('../../../lib/active-client-account', () => ({
   clientServesAccount: () => true,
   recordedJmapAccountId: () => undefined,
@@ -33,6 +37,8 @@ vi.mock('../../../lib/queue-send', async (orig) => ({
 import { QuickReplyBox } from '../QuickReplyBox';
 import { renderComponent, findElement, resetHooks } from './hook-harness';
 import { sendEmail, patchKeywordsForEmails } from '../../../api/email';
+import { sendRouted } from '../../../lib/routed-send';
+import { Alert } from 'react-native';
 import { jmapClient } from '../../../api/jmap-client';
 import { useEmailStore } from '../../../stores/email-store';
 import { useSettingsStore } from '../../../stores/settings-store';
@@ -143,5 +149,65 @@ describe('QuickReplyBox on an own-account message', () => {
     const row = await queueOffline(account);
     expect(row.jmapAccountId).toBe('c');
     expect(row.replyTo.jmapAccountId).toBe(account);
+  });
+});
+
+describe('QuickReplyBox replying to a group address', () => {
+  const sendAccounts = {
+    d: { name: 'Bob', identities: [
+      { id: 'b', name: 'Bob', email: 'bob@x', mayDelete: false },
+      { id: 'c', name: 'Team', email: 'team@x', mayDelete: false },
+    ] },
+    f: { name: 'Team', identities: [{ id: 'b', name: 'Team', email: 'team@x', mayDelete: false }] },
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(jmapClient, 'accountId', 'get').mockReturnValue('d');
+    vi.spyOn(jmapClient, 'connectedAccountId', 'get').mockReturnValue('d');
+    vi.spyOn(jmapClient, 'connectionGen', 'get').mockReturnValue(1);
+    vi.spyOn(jmapClient, 'undoSendHold').mockReturnValue(30);
+    useEmailStore.setState({ mailboxes, activeAccountId: 'app1' } as never);
+    useSettingsStore.setState({ identities: sendAccounts.d.identities, sendAccounts, sendDelaySeconds: 30 } as never);
+    useNetworkStore.setState({ online: true } as never);
+    useSendUndoStore.setState({ pending: null } as never);
+  });
+  const toTeam = { ...email, to: [{ email: 'team@x' }] } as unknown as Email;
+  async function press(msg: Email) {
+    const view = renderComponent(QuickReplyBox, { email: msg, jmapAccountId: 'f', ownerAppAccountId: 'app1', onMoreOptions: vi.fn() });
+    findElement(view.tree(), (p) => 'onChangeText' in p)!.props.onChangeText('thanks');
+    await findElement(view.tree(), (p) => typeof p.onPress === 'function' && p.disabled === false)!.props.onPress();
+  }
+
+  it('sends from the group account and flags in the message account', async () => {
+    await press(toTeam);
+    expect(sendEmail).not.toHaveBeenCalled();
+    const p = vi.mocked(sendRouted).mock.calls[0][0] as any;
+    expect(p.route).toEqual({ jmapAccountId: 'f', identityId: 'b' });
+    expect(p.blobAccountId).toBe('d');
+    expect(p.holdForSeconds).toBe(30);
+    expect(jmapClient.undoSendHold).toHaveBeenCalledWith(30, 'f');
+    expect(p.outgoing.from[0].email).toBe('team@x');
+    expect(p.outgoing.to).toEqual([{ email: 'alice@x', name: undefined }]);
+    const [, , scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    expect(scope.accountId).toBe('f');
+    expect(scope.gen).toBe(p.base.gen);
+    expect(useSendUndoStore.getState().pending?.accountId).toBe('f');
+    expect(useSendUndoStore.getState().pending?.identityId).toBe('b');
+  });
+
+  it('refuses offline without queueing', async () => {
+    useNetworkStore.setState({ online: false } as never);
+    const enqueue = vi.fn(async () => undefined);
+    useSendQueueStore.setState({ enqueue } as never);
+    await press(toTeam);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(sendRouted).not.toHaveBeenCalled();
+    expect(vi.mocked(Alert.alert).mock.calls[0][1]).toBe('Connect to send from team@x.');
+  });
+
+  it('keeps an own reply on the own path', async () => {
+    await press(email);
+    expect(sendRouted).not.toHaveBeenCalled();
+    expect((vi.mocked(sendEmail).mock.calls[0] as any[])[1]).toBe('b');
   });
 });
