@@ -11,7 +11,7 @@ const normalize = (email: string | null | undefined): string => (email ?? '').tr
 const isWildcard = (identity: Identity): boolean => identity.email.includes('*');
 
 /** The identity of the account whose own address the override is, if any. */
-function owningIdentity(identities: readonly Identity[], selected: Identity, overrideEmail: string): Identity | undefined {
+function owningIdentity<T extends Identity>(identities: readonly T[], selected: T, overrideEmail: string): T | undefined {
   if (!overrideEmail) return undefined;
   if (normalize(selected.email) === overrideEmail) return selected;
   return identities.find((identity) => !isWildcard(identity) && normalize(identity.email) === overrideEmail);
@@ -23,11 +23,11 @@ function owningIdentity(identities: readonly Identity[], selected: Identity, ove
  * Its id must reach both sendEmail and the queued row, so an uncertain send
  * can still be proven by its submission.
  */
-export function pickSubmissionIdentity(
-  identities: readonly Identity[],
-  selected: Identity,
+export function pickSubmissionIdentity<T extends Identity>(
+  identities: readonly T[],
+  selected: T,
   overrideEmail: string | null | undefined,
-): Identity {
+): T {
   return owningIdentity(identities, selected, normalize(overrideEmail)) ?? selected;
 }
 

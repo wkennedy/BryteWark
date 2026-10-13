@@ -1,0 +1,97 @@
+import { describe, it, expect } from 'vitest';
+import {
+  resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
+} from '../composer-route';
+import { RoutedSendError } from '../routed-send';
+import { pickSubmissionIdentity } from '../envelope-sender';
+import type { SendIdentity } from '../send-identities';
+
+const ident = (id: string, email: string, jmapAccountId: string, accountName = jmapAccountId): SendIdentity => ({
+  id, email, name: '', mayDelete: true, jmapAccountId, accountName,
+});
+const own = ident('b', 'bob@x', 'a', 'Bob');
+const ownWildcard = ident('w', '*@x', 'a', 'Bob');
+const routed = ident('f/b', 'team@x', 'f', 'Team');
+
+describe('resolveIdentityAlias', () => {
+  it('follows a hidden duplicate to its shared copy', () => {
+    expect(resolveIdentityAlias('c', { c: 'f/b' })).toBe('f/b');
+  });
+  it('keeps an id without an alias', () => {
+    expect(resolveIdentityAlias('b', {})).toBe('b');
+  });
+  it('is null without an id', () => {
+    expect(resolveIdentityAlias(null, { c: 'f/b' })).toBeNull();
+    expect(resolveIdentityAlias(undefined, {})).toBeNull();
+    expect(resolveIdentityAlias('', {})).toBeNull();
+  });
+});
+
+describe('sameAccountIdentities', () => {
+  it('keeps only the chosen identity\'s account', () => {
+    expect(sameAccountIdentities([own, ownWildcard, routed], routed)).toEqual([routed]);
+    expect(sameAccountIdentities([own, ownWildcard, routed], own)).toEqual([own, ownWildcard]);
+  });
+  it('never lets an override pick your own wildcard for a routed identity', () => {
+    const pool = sameAccountIdentities([own, ownWildcard, routed], routed);
+    expect(pickSubmissionIdentity(pool, routed, 'team+tag@x')).toBe(routed);
+    expect(pickSubmissionIdentity(pool, routed, 'bob@x')).toBe(routed);
+  });
+});
+
+describe('planComposerSend', () => {
+  it('sends your own identity from your own account, online or offline', () => {
+    expect(planComposerSend({ submission: own, ownAccountId: 'a', online: true })).toEqual({ kind: 'own' });
+    expect(planComposerSend({ submission: own, ownAccountId: 'a', online: false })).toEqual({ kind: 'own' });
+  });
+  it('routes a group identity to its account with the server id', () => {
+    expect(planComposerSend({ submission: routed, ownAccountId: 'a', online: true })).toEqual({
+      kind: 'routed', route: { jmapAccountId: 'f', identityId: 'b' }, accountName: 'Team',
+    });
+  });
+  it('refuses a group identity offline', () => {
+    const plan = planComposerSend({ submission: routed, ownAccountId: 'a', online: false });
+    expect(plan.kind).toBe('refuse');
+    if (plan.kind !== 'refuse') return;
+    expect(plan.error).toBeInstanceOf(RoutedSendError);
+    expect(plan.error.reason).toBe('offline');
+    expect(plan.error.address).toBe('team@x');
+    expect(plan.error.account).toBe('Team');
+  });
+  it('routes a plain id to the account it was read from, never your own', () => {
+    const elsewhere = ident('b', 'bob@x', 'z');
+    expect(planComposerSend({ submission: elsewhere, ownAccountId: 'a', online: true })).toEqual({
+      kind: 'routed', route: { jmapAccountId: 'z', identityId: 'b' }, accountName: 'z',
+    });
+  });
+});
+
+describe('sendCapabilityAccountId', () => {
+  it('is the group account for a routed identity', () => {
+    expect(sendCapabilityAccountId(routed, 'a')).toBe('f');
+  });
+  it('is your own account without one, or for your own identity', () => {
+    expect(sendCapabilityAccountId(null, 'a')).toBe('a');
+    expect(sendCapabilityAccountId(null, undefined)).toBeUndefined();
+    expect(sendCapabilityAccountId(own, 'a')).toBe('a');
+  });
+});
+
+describe('composerIdentitySet', () => {
+  const accounts = {
+    a: { name: 'Bob', identities: [{ id: 'b', email: 'bob@x', name: '', mayDelete: false }] },
+    f: { name: 'Team', identities: [{ id: 'b', email: 'team@x', name: '', mayDelete: false }] },
+  };
+  it('builds the merged list for your own account', () => {
+    const set = composerIdentitySet({ accounts, source: 'fresh', error: null }, 'a');
+    expect(set?.ownAccountId).toBe('a');
+    expect(set?.list.map((i) => i.id)).toEqual(['b', 'f/b']);
+  });
+  it('keeps what is shown when nothing loaded', () => {
+    expect(composerIdentitySet({ accounts: {}, source: 'none', error: 'x' }, 'a')).toBeNull();
+  });
+  it('keeps what is shown when your own account is unknown', () => {
+    expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, null)).toBeNull();
+    expect(composerIdentitySet({ accounts, source: 'cache', error: 'x' }, '')).toBeNull();
+  });
+});
