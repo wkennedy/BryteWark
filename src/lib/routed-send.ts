@@ -3,9 +3,9 @@ import { getIdentities } from '../api/identity';
 import { resolveSendMailboxes } from '../api/sent-lookup';
 import { sendEmail, type OutgoingEmail, type SendEmailResult } from '../api/email';
 import { inAccount, type OpScope } from '../api/op-scope';
-import { identitySendsAs } from './send-identities';
+import { identitySendsAsOrSubaddress } from './send-identities';
 
-export type RoutedSendReason = 'offline' | 'no_folders' | 'identity_gone' | 'blob_copy';
+export type RoutedSendReason = 'offline' | 'no_folders' | 'identity_gone' | 'from_override' | 'blob_copy';
 
 /** A send from a shared account's identity that was refused before anything reached the server. */
 export class RoutedSendError extends Error {
@@ -28,6 +28,8 @@ export interface RoutedSendParams {
   draftAccountId?: string;
   /** `opScope()` at send time; the routed scope is `inAccount(base, route.jmapAccountId)`. */
   base: OpScope;
+  /** The composer's sub-address delimiter (default `+`), so `team+tag@x` sends as `team@x`. */
+  subAddressDelimiter?: string;
 }
 
 /**
@@ -46,12 +48,18 @@ export async function sendRouted(p: RoutedSendParams): Promise<SendEmailResult &
   if (!sentId || !draftsId) throw refuse('no_folders');
 
   const identity = (await getIdentities(at)).find((i) => i.id === route.identityId);
+  if (!identity) throw refuse('identity_gone');
+  // The header From and both envelope senders: the identity's address or a
+  // sub-address of it. Anything else is a custom From, which is never sent
+  // from a group (an id could also name another address there).
+  const covers = (a: string | undefined) => !a || identitySendsAsOrSubaddress(identity, a, p.subAddressDelimiter);
   if (
-    !identity ||
-    !identitySendsAs(identity, address) ||
-    (outgoing.envelopeMailFrom && !identitySendsAs(identity, outgoing.envelopeMailFrom))
+    !address ||
+    !covers(address) ||
+    !covers(outgoing.envelopeMailFrom) ||
+    !covers(outgoing.envelopeFallbackMailFrom)
   ) {
-    throw refuse('identity_gone');
+    throw refuse('from_override');
   }
 
   let copy = outgoing;

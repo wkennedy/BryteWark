@@ -23,11 +23,41 @@ export function identitySendsAs(identity: Pick<Identity, 'email'>, address: stri
   const target = normalized(address);
   if (!own || !target) return false;
   if (own.startsWith('*@')) {
+    // A malformed `*@` names no domain, so it covers nothing.
+    if (own.length <= 2) return false;
     // Only a plain `local@domain` is covered: `a@b@x` would end in `@x` too.
     const at = target.indexOf('@');
     return at > 0 && at === target.lastIndexOf('@') && target.endsWith(own.slice(1));
   }
   return target === own;
+}
+
+/**
+ * `identitySendsAs`, or a tagged sub-address of the identity's address (`team+tag@x`
+ * for `team@x`) as the composer builds one with `delimiter`. A wildcard identity
+ * follows the wildcard rules only. The queue's replay check keeps the exact rule.
+ */
+export function identitySendsAsOrSubaddress(
+  identity: Pick<Identity, 'email'>,
+  address: string,
+  delimiter = '+',
+): boolean {
+  if (identitySendsAs(identity, address)) return true;
+  const own = normalized(identity.email);
+  const target = normalized(address);
+  if (!delimiter || own.startsWith('*@')) return false;
+  const split = (email: string) => {
+    const at = email.indexOf('@');
+    return at > 0 && at === email.lastIndexOf('@') ? { local: email.slice(0, at), domain: email.slice(at + 1) } : null;
+  };
+  const a = split(own);
+  const b = split(target);
+  if (!a || !b || !a.domain || a.domain !== b.domain) return false;
+  // The composer replaces an existing tag, so both are compared by their base.
+  const cut = b.local.indexOf(delimiter);
+  if (cut <= 0 || cut + delimiter.length >= b.local.length) return false;
+  const base = (local: string) => (local.includes(delimiter) ? local.slice(0, local.indexOf(delimiter)) : local);
+  return b.local.slice(0, cut) === base(a.local);
 }
 
 /**

@@ -2795,6 +2795,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
             draftId: draftIdRef.current ?? undefined,
             draftAccountId: draftAccountRef.current ?? undefined,
             base: at,
+            subAddressDelimiter,
           })
         : await sendEmail(
             outgoing,

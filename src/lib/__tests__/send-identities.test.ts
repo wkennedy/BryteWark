@@ -3,6 +3,7 @@ import {
   buildSendIdentities,
   groupSendIdentities,
   identitySendsAs,
+  identitySendsAsOrSubaddress,
   routeOfIdentity,
 } from '../send-identities';
 
@@ -64,6 +65,37 @@ describe('identitySendsAs', () => {
     expect(identitySendsAs({ email: '*@x' }, 'a@b@x')).toBe(false);
     expect(identitySendsAs({ email: '*@x' }, '@x')).toBe(false);
     expect(identitySendsAs({ email: '*@x' }, 'a@x')).toBe(true);
+  });
+
+  it('does not let a malformed wildcard without a domain cover anything', () => {
+    expect(identitySendsAs({ email: '*@' }, 'a@')).toBe(false);
+    expect(identitySendsAs({ email: '*@' }, 'a@x')).toBe(false);
+  });
+});
+
+describe('identitySendsAsOrSubaddress', () => {
+  it('covers the address itself and a tagged sub-address of it', () => {
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team@x')).toBe(true);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'Team+Tag@X')).toBe(true);
+  });
+
+  it('uses the given delimiter', () => {
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team-tag@x', '-')).toBe(true);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team+tag@x', '-')).toBe(false);
+  });
+
+  it('refuses another local part, another domain, an empty tag or a malformed address', () => {
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'bob@x')).toBe(false);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'teamx+tag@x')).toBe(false);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team+tag@y')).toBe(false);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team+@x')).toBe(false);
+    expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team+a@b@x')).toBe(false);
+  });
+
+  it('leaves a wildcard identity to the wildcard rules', () => {
+    expect(identitySendsAsOrSubaddress({ email: '*@x' }, 'team+tag@x')).toBe(true);
+    expect(identitySendsAsOrSubaddress({ email: '*@x' }, 'team+tag@y')).toBe(false);
+    expect(identitySendsAsOrSubaddress({ email: '*@x' }, '*+tag@x')).toBe(identitySendsAs({ email: '*@x' }, '*+tag@x'));
   });
 });
 

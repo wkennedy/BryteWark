@@ -66,25 +66,81 @@ describe('sendRouted', () => {
     expect(r.accountId).toBe('f');
   });
 
-  it('refuses without Sent or Drafts, touching nothing', async () => {
+  it('refuses without Drafts, touching nothing', async () => {
     resolveSendMailboxes.mockResolvedValue({ sentId: 'e' });
     expect((await refusal(params())).reason).toBe('no_folders');
     expect(copyBlobs).not.toHaveBeenCalled();
   });
 
+  it('refuses without Sent, touching nothing', async () => {
+    resolveSendMailboxes.mockResolvedValue({ draftsId: 'd' });
+    expect((await refusal(params())).reason).toBe('no_folders');
+    expect(getIdentities).not.toHaveBeenCalled();
+    expect(copyBlobs).not.toHaveBeenCalled();
+  });
+
   it('refuses when a collided identity id belongs to another address', async () => {
     const p = params({ outgoing: { ...outgoing(), from: [{ email: 'bob@x' }] } });
-    expect((await refusal(p)).reason).toBe('identity_gone');
+    expect((await refusal(p)).reason).toBe('from_override');
     expect(copyBlobs).not.toHaveBeenCalled();
   });
 
   it('refuses when the identity is absent from the group', async () => {
     expect((await refusal(params({ route: { jmapAccountId: 'f', identityId: 'c' } }))).reason).toBe('identity_gone');
+    expect(copyBlobs).not.toHaveBeenCalled();
   });
 
   it('refuses an envelope sender the identity does not cover', async () => {
     const p = params({ outgoing: { ...outgoing(), envelopeMailFrom: 'bob@x' } });
-    expect((await refusal(p)).reason).toBe('identity_gone');
+    expect((await refusal(p)).reason).toBe('from_override');
+    expect(copyBlobs).not.toHaveBeenCalled();
+  });
+
+  it('refuses a fallback envelope sender the identity does not cover', async () => {
+    const p = params({ outgoing: { ...outgoing(), envelopeFallbackMailFrom: 'bob@x' } });
+    expect((await refusal(p)).reason).toBe('from_override');
+    expect(copyBlobs).not.toHaveBeenCalled();
+  });
+
+  it('sends a sub-address of the group address from the group', async () => {
+    const p = params({
+      outgoing: { ...outgoing(), from: [{ email: 'team+tag@x' }], envelopeMailFrom: 'team@x' },
+    });
+    await sendRouted(p as never);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].from).toEqual([{ email: 'team+tag@x' }]);
+    expect(sendEmail.mock.calls[0][1]).toBe('b');
+  });
+
+  it('accepts a tagged override with its fallback, using the composer\'s delimiter', async () => {
+    const p = params({
+      outgoing: {
+        ...outgoing(), from: [{ email: 'team-tag@x' }], envelopeMailFrom: 'team-tag@x', envelopeFallbackMailFrom: 'team@x',
+      },
+      subAddressDelimiter: '-',
+    });
+    await sendRouted(p as never);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a custom From that is not the group address', async () => {
+    const p = params({
+      outgoing: { ...outgoing(), from: [{ email: 'bob@x' }], envelopeMailFrom: 'bob@x', envelopeFallbackMailFrom: 'team@x' },
+    });
+    const e = await refusal(p);
+    expect(e.reason).toBe('from_override');
+    expect(e.account).toBe('Team');
+  });
+
+  it('leaves a sub-address under a wildcard group identity to the wildcard rules', async () => {
+    getIdentities.mockResolvedValue([{ id: 'b', email: '*@x' }]);
+    await sendRouted(params({ outgoing: { ...outgoing(), from: [{ email: 'team+tag@x' }] } }) as never);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+    getIdentities.mockResolvedValue([{ id: 'b', email: '*@x' }]);
+    resolveSendMailboxes.mockResolvedValue({ sentId: 'e', draftsId: 'd' });
+    const e = await refusal(params({ outgoing: { ...outgoing(), from: [{ email: 'team+tag@y' }] } }));
+    expect(e.reason).toBe('from_override');
   });
 
   it('refuses when the attachments cannot be copied', async () => {
@@ -104,5 +160,7 @@ describe('sendErrorAlert for a routed refusal', () => {
       .toBe('You can no longer send from team@x in Team.');
     expect(sendErrorAlert(new RoutedSendError('blob_copy', 'team@x', 'Team'), ti).message)
       .toBe("The attachments couldn't be copied to Team. Nothing was sent.");
+    expect(sendErrorAlert(new RoutedSendError('from_override', 'bob@x', 'Team'), ti).message)
+      .toBe("A custom From can't be used when sending from Team.");
   });
 });

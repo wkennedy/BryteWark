@@ -52,6 +52,15 @@ export function sendErrorAlert(
           title,
           message: t('email_composer.routed_identity_gone', 'You can no longer send from {address} in {account}.', { address, account }),
         };
+      case 'from_override':
+        return {
+          title,
+          message: t(
+            'email_composer.routed_from_override',
+            "A custom From can't be used when sending from {account}.",
+            { address, account },
+          ),
+        };
       case 'blob_copy':
         return {
           title,
