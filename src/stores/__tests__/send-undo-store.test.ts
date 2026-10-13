@@ -7,6 +7,9 @@ vi.mock('../../api/email', () => ({
   getFullEmail: vi.fn(),
 }));
 
+const resolveSendMailboxes = vi.hoisted(() => vi.fn());
+vi.mock('../../api/sent-lookup', () => ({ resolveSendMailboxes: (...a: unknown[]) => resolveSendMailboxes(...a) }));
+
 const client = vi.hoisted(() => ({
   accountId: 'primary',
   isConnected: true,
@@ -73,6 +76,7 @@ beforeEach(() => {
   APP = registerServedAccount('me@example.com', 'https://mail.example.com');
   useSendUndoStore.setState({ pending: null, busy: false, restoredEmailId: null });
   api.getFullEmail.mockResolvedValue({ id: 'mail-1', subject: 'Re: hi' } as Email);
+  resolveSendMailboxes.mockResolvedValue({ draftsId: 'team-drafts', sentId: 'team-sent' });
 });
 
 describe('send-undo-store', () => {
@@ -183,13 +187,24 @@ describe('send-undo-store', () => {
       expect(api.restoreEmailToDraft).toHaveBeenCalledWith('mail-1', 'own-drafts', 'own-sent', scope('primary'));
       expect(api.getFullEmail).toHaveBeenCalledWith('mail-1', scope('primary'));
       expect(draft).toMatchObject({ id: 'mail-1', jmapAccountId: undefined });
+      expect(resolveSendMailboxes).not.toHaveBeenCalled();
     });
 
     it('moves a shared-account reply back into that account\'s Drafts', async () => {
       const draft = await restoreUndoneSend(entry({ accountId: 'team' }), MAILBOXES, APP);
+      expect(resolveSendMailboxes).toHaveBeenCalledWith(scope('team'));
       expect(api.restoreEmailToDraft).toHaveBeenCalledWith('mail-1', 'team-drafts', 'team-sent', scope('team'));
       expect(api.getFullEmail).toHaveBeenCalledWith('mail-1', scope('team'));
       expect(draft).toMatchObject({ id: 'mail-1', jmapAccountId: 'team' });
+    });
+
+    // A send from a group identity files in the group's Sent, whose folders
+    // the email store may not have loaded; left there, every member sees it.
+    it('finds the group\'s Drafts and Sent on the server when they are not loaded', async () => {
+      resolveSendMailboxes.mockResolvedValue({ draftsId: 'g-drafts', sentId: 'g-sent' });
+      await restoreUndoneSend(entry({ accountId: 'group' }), MAILBOXES, APP);
+      expect(resolveSendMailboxes).toHaveBeenCalledWith(scope('group'));
+      expect(api.restoreEmailToDraft).toHaveBeenCalledWith('mail-1', 'g-drafts', 'g-sent', scope('group'));
     });
 
     it('treats the primary account named explicitly as the own account', async () => {
@@ -213,7 +228,8 @@ describe('send-undo-store', () => {
     });
 
     it('still opens the message when the account has no Drafts folder', async () => {
-      const draft = await restoreUndoneSend(entry({ accountId: 'team' }), MAILBOXES.slice(0, 2), APP);
+      resolveSendMailboxes.mockResolvedValue({ sentId: 'team-sent' });
+      const draft = await restoreUndoneSend(entry({ accountId: 'team' }), MAILBOXES, APP);
       expect(api.restoreEmailToDraft).not.toHaveBeenCalled();
       expect(draft.id).toBe('mail-1');
     });
