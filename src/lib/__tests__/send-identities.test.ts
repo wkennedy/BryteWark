@@ -59,6 +59,12 @@ describe('identitySendsAs', () => {
     expect(identitySendsAs({ email: '*@x' }, 'any@x')).toBe(true);
     expect(identitySendsAs({ email: 'team@x' }, 'bob@x')).toBe(false);
   });
+
+  it('lets a wildcard cover only well-formed addresses in its domain', () => {
+    expect(identitySendsAs({ email: '*@x' }, 'a@b@x')).toBe(false);
+    expect(identitySendsAs({ email: '*@x' }, '@x')).toBe(false);
+    expect(identitySendsAs({ email: '*@x' }, 'a@x')).toBe(true);
+  });
 });
 
 describe('groupSendIdentities', () => {

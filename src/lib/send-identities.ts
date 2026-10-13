@@ -22,7 +22,11 @@ export function identitySendsAs(identity: Pick<Identity, 'email'>, address: stri
   const own = normalized(identity.email);
   const target = normalized(address);
   if (!own || !target) return false;
-  if (own.startsWith('*@')) return target.endsWith(own.slice(1));
+  if (own.startsWith('*@')) {
+    // Only a plain `local@domain` is covered: `a@b@x` would end in `@x` too.
+    const at = target.indexOf('@');
+    return at > 0 && at === target.lastIndexOf('@') && target.endsWith(own.slice(1));
+  }
   return target === own;
 }
 
