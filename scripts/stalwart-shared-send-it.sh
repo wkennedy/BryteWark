@@ -10,8 +10,8 @@
 #
 # Everything it creates is named bulwark-sharedsend-it-<pid> and removed on
 # exit. JMAP is reached over the container's plain-HTTP listener, published on
-# 127.0.0.1 only. The container gets an unusable DNS server, so it can't reach
-# any outside host either (the server otherwise fetches its web UI).
+# 127.0.0.1 only. The container gets an unusable DNS server, so it can't
+# resolve outside hosts either (the server otherwise fetches its web UI).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +32,7 @@ trap cleanup EXIT
 docker image inspect "$IMAGE" >/dev/null
 
 # --dns 127.0.0.1: no name resolves inside the container, so the server can't
-# reach any outside host (it would fetch its web UI from github.com). Mail
+# resolve outside hosts (it would fetch its web UI from github.com). Mail
 # between the example.org users is delivered locally and needs no DNS.
 docker run -d --pull never --name "$NAME" \
   --dns 127.0.0.1 \
@@ -47,14 +47,20 @@ URL="http://127.0.0.1:$PORT"
 echo "Stalwart: $NAME on $URL"
 
 # The bootstrap restarts the server twice; wait for its final start.
+ready=0
 for _ in $(seq 1 120); do
   if docker logs "$NAME" 2>&1 | grep -q 'Starting Stalwart (final' &&
     curl -fs -o /dev/null -u "bob@example.org:$USER_PASS" "$URL/jmap/session"; then
+    ready=1
     break
   fi
   sleep 1
 done
-curl -fsS -o /dev/null -u "bob@example.org:$USER_PASS" "$URL/jmap/session"
+if [ "$ready" != 1 ]; then
+  echo "Stalwart did not start within 120 s. Its log:" >&2
+  docker logs "$NAME" >&2 2>&1 || true
+  exit 1 # the EXIT trap still removes the container and volumes
+fi
 
 cli() {
   docker exec -e HOME=/tmp -e STALWART_URL=http://127.0.0.1:8080 \
