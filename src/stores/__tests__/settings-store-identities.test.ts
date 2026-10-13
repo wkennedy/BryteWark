@@ -7,17 +7,25 @@ const client = vi.hoisted(() => ({
 }));
 
 vi.mock('../../api/jmap-client', () => ({ jmapClient: client }));
-vi.mock('../../api/identity', () => ({ getIdentities: vi.fn() }));
+vi.mock('../../api/identity', () => ({ getSendIdentities: vi.fn() }));
 
-import { getIdentities } from '../../api/identity';
+import { getSendIdentities } from '../../api/identity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSettingsStore } from '../settings-store';
 
-const mockGetIdentities = getIdentities as ReturnType<typeof vi.fn>;
+const mockSend = getSendIdentities as ReturnType<typeof vi.fn>;
+// Most tests only care about the own account's list: wrap it as the one-account result.
+const mockGetIdentities = vi.fn();
+const team = { id: 'b', name: 'Team', email: 'team@example.com' };
 const me = { id: 'i1', name: 'Me', email: 'me@example.com' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetIdentities.mockReset();
+  mockSend.mockImplementation(async () => {
+    const own = client.accountId; // the account the read was made for
+    return { [own]: { name: 'Me', identities: await mockGetIdentities() } };
+  });
   client.accountId = 'acc-1';
   client.serverUrl = 'https://mail.example';
   useSettingsStore.getState().reset();
@@ -83,6 +91,52 @@ describe('identities', () => {
 
     expect(useSettingsStore.getState().identities).toEqual([]);
     expect(useSettingsStore.getState().identitiesFor).toBeNull();
+  });
+});
+
+describe('sendable accounts', () => {
+  const both = () => ({ d: { name: 'Bob', identities: [me] }, f: { name: 'Team account', identities: [team] } });
+
+  beforeEach(() => { client.accountId = 'd'; });
+
+  it('holds every account, with identities being the own list', async () => {
+    mockSend.mockResolvedValue(both());
+    await useSettingsStore.getState().fetchIdentities();
+    expect(Object.keys(useSettingsStore.getState().sendAccounts)).toEqual(['d', 'f']);
+    expect(useSettingsStore.getState().identities).toEqual([me]);
+  });
+
+  it('caches both accounts, own first', async () => {
+    await AsyncStorage.clear();
+    mockSend.mockResolvedValue(both());
+    await useSettingsStore.getState().fetchIdentities();
+    const cached = JSON.parse((await AsyncStorage.getItem('webmail:identities:v2:me@mail.example'))!);
+    expect(Object.keys(cached)).toEqual(['d', 'f']);
+  });
+
+  it('refresh updates the sendable accounts too', async () => {
+    mockSend.mockResolvedValueOnce({ d: both().d }).mockResolvedValueOnce(both());
+    await useSettingsStore.getState().fetchIdentities();
+    await useSettingsStore.getState().refreshIdentities();
+    expect(Object.keys(useSettingsStore.getState().sendAccounts)).toEqual(['d', 'f']);
+  });
+
+  it('leaves them untouched when the scope changes during the read', async () => {
+    let release!: (v: unknown) => void;
+    mockSend.mockReturnValueOnce(new Promise((r) => { release = r; }));
+    const pending = useSettingsStore.getState().fetchIdentities();
+    client.serverUrl = 'https://other.example';
+    release(both());
+    await pending;
+    expect(useSettingsStore.getState().sendAccounts).toEqual({});
+    expect(useSettingsStore.getState().identities).toEqual([]);
+  });
+
+  it('resets with the identities', async () => {
+    mockSend.mockResolvedValue(both());
+    await useSettingsStore.getState().fetchIdentities();
+    useSettingsStore.getState().reset();
+    expect(useSettingsStore.getState().sendAccounts).toEqual({});
   });
 });
 

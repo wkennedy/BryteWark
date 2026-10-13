@@ -9,17 +9,20 @@ import { useColors } from '../theme/colors';
 import { useSheetDrag } from '../lib/use-sheet-drag';
 import type { Identity } from '../api/types';
 import { useLocaleStore } from '../stores/locale-store';
+import { groupSendIdentities, type SendIdentity } from '../lib/send-identities';
 
 interface IdentitySheetProps {
   visible: boolean;
   onClose: () => void;
-  identities: Identity[];
+  identities: Identity[] | SendIdentity[];
   selectedIdentityId: string | null;
   onPick: (identity: Identity) => void;
+  /** With it, a list spanning several accounts is grouped under account headers. */
+  ownAccountId?: string;
 }
 
 export function IdentitySheet({
-  visible, onClose, identities, selectedIdentityId, onPick,
+  visible, onClose, identities, selectedIdentityId, onPick, ownAccountId,
 }: IdentitySheetProps) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
@@ -43,6 +46,46 @@ export function IdentitySheet({
     }
   }, [visible, slideY, overlayOpacity]);
 
+  const list = identities as SendIdentity[];
+  const sections = ownAccountId && new Set(list.map((i) => i.jmapAccountId)).size > 1
+    ? groupSendIdentities(list, ownAccountId)
+    : null;
+
+  const renderRow = (identity: Identity) => {
+    const isSelected = identity.id === selectedIdentityId;
+    return (
+      <Pressable
+        key={identity.id}
+        onPress={() => {
+          onPick(identity);
+          onClose();
+        }}
+        style={({ pressed }) => [
+          styles.identityRow,
+          pressed && styles.identityRowPressed,
+        ]}
+      >
+        <View style={styles.iconWrap}>
+          <Mail size={16} color={isSelected ? c.primary : c.textSecondary} />
+        </View>
+        <View style={styles.identityDetails}>
+          {!!identity.name && (
+            <Text style={styles.identityName} numberOfLines={1}>
+              {identity.name}
+            </Text>
+          )}
+          <Text style={[styles.identityEmail, !identity.name && styles.identityEmailOnly]} numberOfLines={1}>
+            {identity.email}
+          </Text>
+        </View>
+        {isSelected && (
+          <View style={styles.checkWrap}>
+            <Check size={16} color={c.primary} />
+          </View>
+        )}
+      </Pressable>
+    );
+  };
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <Animated.View style={[styles.sheetOverlay, { opacity: overlayOpacity }]}>
@@ -69,41 +112,16 @@ export function IdentitySheet({
           </View>
         </View>
         <ScrollView style={styles.scrollList}>
-          {identities.map((identity) => {
-            const isSelected = identity.id === selectedIdentityId;
-            return (
-              <Pressable
-                key={identity.id}
-                onPress={() => {
-                  onPick(identity);
-                  onClose();
-                }}
-                style={({ pressed }) => [
-                  styles.identityRow,
-                  pressed && styles.identityRowPressed,
-                ]}
-              >
-                <View style={styles.iconWrap}>
-                  <Mail size={16} color={isSelected ? c.primary : c.textSecondary} />
-                </View>
-                <View style={styles.identityDetails}>
-                  {!!identity.name && (
-                    <Text style={styles.identityName} numberOfLines={1}>
-                      {identity.name}
-                    </Text>
-                  )}
-                  <Text style={[styles.identityEmail, !identity.name && styles.identityEmailOnly]} numberOfLines={1}>
-                    {identity.email}
-                  </Text>
-                </View>
-                {isSelected && (
-                  <View style={styles.checkWrap}>
-                    <Check size={16} color={c.primary} />
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
+          {sections
+            ? sections.map((section) => (
+              <View key={section.jmapAccountId}>
+                <Text style={styles.sectionLabel} numberOfLines={1}>
+                  {section.label ?? t('email_composer.own_account', 'Your account')}
+                </Text>
+                {section.identities.map(renderRow)}
+              </View>
+            ))
+            : identities.map(renderRow)}
         </ScrollView>
       </Animated.View>
     </Modal>
@@ -160,6 +178,13 @@ function makeStyles(c: ThemePalette) {
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: radius.xs,
+    },
+    sectionLabel: {
+      ...typography.captionMedium,
+      color: c.textMuted,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xs,
     },
     scrollList: {
       paddingVertical: spacing.xs,

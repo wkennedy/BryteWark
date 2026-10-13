@@ -323,6 +323,7 @@
     "image_load_failed": "Could not load image",
     "no_recipient": "(no recipient)",
     "no_sent_folder": "No Sent folder found",
+    "own_account": "Your account",
     "permission_camera": "Camera permission is required to take a photo.",
     "permission_photos": "Photo library permission is required to attach images.",
     "recipient_add_contact": "Add to contacts",

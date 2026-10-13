@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import type { Identity } from '../api/types';
-import { getIdentities as fetchIdentities } from '../api/identity';
+import { getSendIdentities, type SendableIdentities } from '../api/identity';
+import { opScope } from '../api/op-scope';
 import { jmapClient } from '../api/jmap-client';
 import { generateAccountId } from '../lib/account-utils';
 import { writeIdentityCache } from '../lib/identity-cache';
@@ -546,6 +547,8 @@ const DEFAULT_PERSISTED: PersistedSettings = {
 
 export interface SettingsState extends PersistedSettings {
   identities: Identity[];
+  /** Every account this one can send from (its own and shared ones), by JMAP account id; `identities` is the own entry's list. */
+  sendAccounts: SendableIdentities;
   /** The signed-in account (server, login, JMAP account) `identities` were read for. */
   identitiesFor: string | null;
   loading: boolean;
@@ -1217,6 +1220,7 @@ let identitiesInFlight: { scope: string | null; promise: Promise<void> } | null 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...DEFAULT_PERSISTED,
   identities: [],
+  sendAccounts: {},
   identitiesFor: null,
   loading: false,
   error: null,
@@ -1235,15 +1239,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     promise = (async () => {
       set({ loading: true, error: null });
       try {
-        const identities = await fetchIdentities();
+        const own = jmapClient.accountId;
+        const sendAccounts = await getSendIdentities(opScope());
+        const identities = sendAccounts[own]?.identities ?? [];
         // Signed in to another account meanwhile: these are not its identities.
         if (identityScope() !== scope) {
           set({ loading: false });
           return;
         }
-        set({ identities, identitiesFor: scope, loading: false });
+        set({ identities, sendAccounts, identitiesFor: scope, loading: false });
         // Lets a composer opened offline still send from these.
-        if (scope !== null && cacheAccount) await writeIdentityCache(cacheAccount, { [jmapClient.accountId]: { name: '', identities } }, jmapClient.accountId);
+        if (scope !== null && cacheAccount) await writeIdentityCache(cacheAccount, sendAccounts, own);
       } catch (err) {
         set({ loading: false, error: err instanceof Error ? err.message : 'Failed to load identities' });
       } finally {
@@ -1260,7 +1266,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (scope !== null && held === scope) return Promise.resolve();
     // Another account's identities must not stand in (the quick reply would
     // send through one this account does not have).
-    if (held !== null && held !== scope) set({ identities: [], identitiesFor: null });
+    if (held !== null && held !== scope) set({ identities: [], sendAccounts: {}, identitiesFor: null });
     return get().fetchIdentities();
   },
 
@@ -1269,11 +1275,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (scope === null || get().identitiesFor !== scope) return;
     const cacheAccount = identityCacheAccount();
     try {
-      const identities = await fetchIdentities();
+      const own = jmapClient.accountId;
+      const sendAccounts = await getSendIdentities(opScope());
+      const identities = sendAccounts[own]?.identities ?? [];
       // Another account, or a reset, meanwhile: not ours to write.
       if (identityScope() !== scope || get().identitiesFor !== scope) return;
-      set({ identities });
-      if (cacheAccount) await writeIdentityCache(cacheAccount, { [jmapClient.accountId]: { name: '', identities } }, jmapClient.accountId);
+      set({ identities, sendAccounts });
+      if (cacheAccount) await writeIdentityCache(cacheAccount, sendAccounts, own);
     } catch {
       // Background refresh: keep the list we have.
     }
@@ -1540,6 +1548,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   reset: () => set({
     identities: [],
+    sendAccounts: {},
     identitiesFor: null,
     loading: false,
     error: null,
