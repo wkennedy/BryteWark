@@ -132,7 +132,7 @@ describe('refreshIdentities', () => {
 });
 
 describe('identity cache', () => {
-  const key = (id: string) => `webmail:identities:v1:${id}`;
+  const key = (id: string) => `webmail:identities:v2:${id}`;
   // The client's login: the app account id is generateAccountId(username, serverUrl).
   const ME = 'me@mail.example';
 
@@ -143,7 +143,7 @@ describe('identity cache', () => {
   it('caches a fetched list for the client\'s app account', async () => {
     mockGetIdentities.mockResolvedValue([me]);
     await useSettingsStore.getState().fetchIdentities();
-    expect(JSON.parse((await AsyncStorage.getItem(key(ME)))!).map((i: { id: string }) => i.id)).toEqual(['i1']);
+    expect(JSON.parse((await AsyncStorage.getItem(key(ME)))!)['acc-1'].identities.map((i: { id: string }) => i.id)).toEqual(['i1']);
   });
 
   it('caches a refreshed list', async () => {
@@ -151,7 +151,7 @@ describe('identity cache', () => {
     await useSettingsStore.getState().fetchIdentities();
     mockGetIdentities.mockResolvedValueOnce([me, { id: 'i2', name: 'Two', email: 'two@example.com' }]);
     await useSettingsStore.getState().refreshIdentities();
-    expect(JSON.parse((await AsyncStorage.getItem(key(ME)))!)).toHaveLength(2);
+    expect(JSON.parse((await AsyncStorage.getItem(key(ME)))!)['acc-1'].identities).toHaveLength(2);
   });
 
   it('does not cache a list that lands after switching accounts', async () => {

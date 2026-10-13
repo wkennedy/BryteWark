@@ -1104,22 +1104,23 @@ export default function ComposeScreen({ route, navigation }: Props) {
     if (owner && !ownerActiveNow()) return;
     let cancelled = false;
     void (async () => {
-      const result = await loadComposerIdentities(owner?.appAccountId, async () => {
-        // The live id while the client serves the owner: a stale recorded id
-        // would make every fresh fetch fail.
-        const fetchAccountId = owner ? queueJmapAccountId(owner, {
-          liveJmapAccountId: jmapClient.connectedAccountId,
-          clientServesOwner: clientServesAccount(owner.appAccountId),
-          recorded: recordedJmapAccountId,
-        }) : '';
+      // The live id while the client serves the owner: a stale recorded id
+      // would make every fresh fetch fail.
+      const fetchAccountId = owner ? queueJmapAccountId(owner, {
+        liveJmapAccountId: jmapClient.connectedAccountId,
+        clientServesOwner: clientServesAccount(owner.appAccountId),
+        recorded: recordedJmapAccountId,
+      }) : '';
+      const ownJmapAccountId = fetchAccountId || owner?.jmapAccountId || null;
+      const result = await loadComposerIdentities(owner?.appAccountId, ownJmapAccountId, async () => {
         const list = await getIdentities(fetchAccountId || undefined);
         if (owner && !ownerActiveNow()) throw new Error('Account switched');
-        return list;
+        return { [ownJmapAccountId ?? '']: { name: '', identities: list } };
       });
       if (cancelled) return;
       if (result.source === 'fresh') setIdentitiesFresh(true);
       // A failed retry keeps the cached list already shown.
-      if (result.source !== 'none') setIdentities(result.identities);
+      if (result.source !== 'none') setIdentities(result.accounts[ownJmapAccountId ?? '']?.identities ?? []);
       setIdentityError(result.error);
     })();
     return () => { cancelled = true; };
