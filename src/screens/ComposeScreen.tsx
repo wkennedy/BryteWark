@@ -51,7 +51,6 @@ import { useSendUndoStore } from '../stores/send-undo-store';
 import { toast } from '../stores/toast-store';
 import { type EmailTemplate } from '../stores/templates-store';
 import { getSendIdentities } from '../api/identity';
-import { loadComposerIdentities } from '../lib/identity-cache';
 import {
   sendEmail, createDraft, destroyEmails, patchKeywordsForEmails, type OutgoingAttachment, type OutgoingEmail,
 } from '../api/email';
@@ -66,7 +65,7 @@ import { useNetworkStore } from '../stores/network-store';
 import { useSendQueueStore, SendTooLargeToQueueError, AlreadyQueuedError } from '../stores/send-queue-store';
 import { envelopeFallbackIdentity, overrideEnvelope, pickSubmissionIdentity } from '../lib/envelope-sender';
 import {
-  composerIdentitySet, planComposerSend, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
+  loadComposerSendIdentities, planComposerSend, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
   type ComposerIdentitySet,
 } from '../lib/composer-route';
 import { sendRouted } from '../lib/routed-send';
@@ -1118,20 +1117,20 @@ export default function ComposeScreen({ route, navigation }: Props) {
         clientServesOwner: clientServesAccount(owner.appAccountId),
         recorded: recordedJmapAccountId,
       }) : '';
-      const ownJmapAccountId = fetchAccountId || owner?.jmapAccountId || null;
-      const at = inAccount(opScope(), fetchAccountId || undefined);
-      const result = await loadComposerIdentities(owner?.appAccountId, ownJmapAccountId, async () => {
-        const accounts = await getSendIdentities(at);
-        if (owner && !ownerActiveNow()) throw new Error('Account switched');
-        return accounts;
+      const result = await loadComposerSendIdentities({
+        appAccountId: owner?.appAccountId,
+        ownJmapAccountId: fetchAccountId || owner?.jmapAccountId || null,
+        fetchAccountId,
+        // Taken in the fetch: with no connection yet it throws, and the cache stands in.
+        scope: () => opScope(),
+        fetch: getSendIdentities,
+        stillOwner: () => !owner || ownerActiveNow(),
       });
       if (cancelled) return;
       if (result.source === 'fresh') setIdentitiesFresh(true);
-      // A fresh list always holds the scope's own account; a cached one is
-      // only read for a known own account. A failed retry, or a cache whose
-      // own account is unknown, keeps the list already shown.
-      const next = composerIdentitySet(result, result.source === 'fresh' ? at.accountId : ownJmapAccountId);
-      if (next) setIdentitySet(next);
+      // A failed retry, or a cache whose own account is unknown, keeps the
+      // list already shown.
+      if (result.set) setIdentitySet(result.set);
       setIdentityError(result.error);
     })();
     return () => { cancelled = true; };

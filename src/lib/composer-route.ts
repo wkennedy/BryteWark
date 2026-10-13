@@ -2,7 +2,8 @@
 // pure so they are tested without a renderer.
 
 import type { SendableIdentities } from '../api/identity';
-import type { ComposerIdentities } from './identity-cache';
+import { inAccount, type OpScope } from '../api/op-scope';
+import { loadComposerIdentities, type ComposerIdentities } from './identity-cache';
 import { RoutedSendError } from './routed-send';
 import { buildSendIdentities, routeOfIdentity, type SendIdentity } from './send-identities';
 
@@ -81,4 +82,34 @@ export function composerIdentitySet(result: ComposerIdentities, ownAccountId: st
     ownAccountId,
     ownEmails: ownAccountEmails(result.accounts, ownAccountId),
   };
+}
+
+/**
+ * The composer's identity load. The scope is taken inside the fetch: with no
+ * connection yet (opened offline at cold start) taking it throws, and the
+ * owner's cache must still stand in. Never rejects.
+ */
+export async function loadComposerSendIdentities(d: {
+  appAccountId: string | null | undefined;
+  /** Your own account for a cached list; null when unknown. */
+  ownJmapAccountId: string | null;
+  /** The account to fetch in ('' for the scope's own). */
+  fetchAccountId: string;
+  scope: () => OpScope;
+  fetch: (at: OpScope) => Promise<SendableIdentities>;
+  /** False once the app switched away from the owner during the fetch. */
+  stillOwner?: () => boolean;
+}): Promise<{ source: ComposerIdentities['source']; set: ComposerIdentitySet | null; error: string | null }> {
+  const fresh: { own: string | null } = { own: null };
+  const result = await loadComposerIdentities(d.appAccountId, d.ownJmapAccountId, async () => {
+    const at = inAccount(d.scope(), d.fetchAccountId || undefined);
+    fresh.own = at.accountId;
+    const accounts = await d.fetch(at);
+    if (d.stillOwner && !d.stillOwner()) throw new Error('Account switched');
+    return accounts;
+  });
+  // A fresh list always holds the scope's own account; a cached one is only
+  // read for a known own account.
+  const set = composerIdentitySet(result, result.source === 'fresh' ? fresh.own : d.ownJmapAccountId);
+  return { source: result.source, set, error: result.error };
 }

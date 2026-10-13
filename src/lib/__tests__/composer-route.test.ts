@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
-  ownAccountEmails,
+  ownAccountEmails, loadComposerSendIdentities,
 } from '../composer-route';
+import { writeIdentityCache } from '../identity-cache';
 import { RoutedSendError } from '../routed-send';
 import { pickSubmissionIdentity } from '../envelope-sender';
 import type { SendIdentity } from '../send-identities';
@@ -115,5 +116,54 @@ describe('ownAccountEmails', () => {
   });
   it('is empty when your own account is missing', () => {
     expect(ownAccountEmails({}, 'a')).toEqual([]);
+  });
+});
+
+describe('loadComposerSendIdentities', () => {
+  const id = (i: string, email: string) => ({ id: i, email, name: '', mayDelete: false });
+  const accounts = {
+    a: { name: 'Bob', identities: [id('b', 'bob@x')] },
+    f: { name: 'Team', identities: [id('b', 'team@x')] },
+  };
+  const noConnection = () => { throw new Error('Not connected'); };
+
+  it('falls back to the cache when there is no connection to take a scope from', async () => {
+    await writeIdentityCache('app-offline', accounts, 'a');
+    const fetch = vi.fn();
+    const r = await loadComposerSendIdentities({
+      appAccountId: 'app-offline', ownJmapAccountId: 'a', fetchAccountId: 'a', scope: noConnection, fetch,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(r.source).toBe('cache');
+    expect(r.error).toBe('Not connected');
+    expect(r.set?.ownAccountId).toBe('a');
+    expect(r.set?.list.map((i) => i.id)).toEqual(['b', 'f/b']);
+  });
+
+  it('reports the error, without rejecting, offline with no owner', async () => {
+    const r = await loadComposerSendIdentities({
+      appAccountId: undefined, ownJmapAccountId: null, fetchAccountId: '', scope: noConnection, fetch: vi.fn(),
+    });
+    expect(r).toEqual({ source: 'none', set: null, error: 'Not connected' });
+  });
+
+  it('reads a fresh list in the scope\'s account and treats it as your own', async () => {
+    const fetch = vi.fn(async () => accounts);
+    const r = await loadComposerSendIdentities({
+      appAccountId: undefined, ownJmapAccountId: null, fetchAccountId: '',
+      scope: () => ({ gen: 3, accountId: 'a' }), fetch,
+    });
+    expect(fetch).toHaveBeenCalledWith({ gen: 3, accountId: 'a' });
+    expect(r.source).toBe('fresh');
+    expect(r.set?.ownAccountId).toBe('a');
+  });
+
+  it('uses the cache when the owner stops being active during the fetch', async () => {
+    await writeIdentityCache('app-switched', accounts, 'a');
+    const r = await loadComposerSendIdentities({
+      appAccountId: 'app-switched', ownJmapAccountId: 'a', fetchAccountId: 'a',
+      scope: () => ({ gen: 3, accountId: 'a' }), fetch: async () => accounts, stillOwner: () => false,
+    });
+    expect(r.source).toBe('cache');
   });
 });
