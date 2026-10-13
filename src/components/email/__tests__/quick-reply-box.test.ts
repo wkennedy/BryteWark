@@ -26,7 +26,7 @@ vi.mock('../../../lib/routed-send', async (orig) => ({
 }));
 vi.mock('../../../lib/active-client-account', () => ({
   clientServesAccount: () => true,
-  recordedJmapAccountId: () => undefined,
+  recordedJmapAccountId: vi.fn((): string | undefined => undefined),
 }));
 vi.mock('../../../lib/queue-send', async (orig) => ({
   ...(await orig<typeof import('../../../lib/queue-send')>()),
@@ -39,6 +39,7 @@ import { renderComponent, findElement, resetHooks } from './hook-harness';
 import { sendEmail, patchKeywordsForEmails } from '../../../api/email';
 import { sendRouted } from '../../../lib/routed-send';
 import { Alert } from 'react-native';
+import { recordedJmapAccountId } from '../../../lib/active-client-account';
 import { jmapClient } from '../../../api/jmap-client';
 import { useEmailStore } from '../../../stores/email-store';
 import { useSettingsStore } from '../../../stores/settings-store';
@@ -209,5 +210,23 @@ describe('QuickReplyBox replying to a group address', () => {
     await press(email);
     expect(sendRouted).not.toHaveBeenCalled();
     expect((vi.mocked(sendEmail).mock.calls[0] as any[])[1]).toBe('b');
+  });
+});
+
+describe('QuickReplyBox before the connection is up', () => {
+  it('still queues an own reply offline with the plain identity id', async () => {
+    vi.clearAllMocks();
+    vi.spyOn(jmapClient, 'accountId', 'get').mockImplementation(() => { throw new Error('Not authenticated - call connect() first'); });
+    vi.spyOn(jmapClient, 'connectedAccountId', 'get').mockReturnValue(null);
+    vi.spyOn(jmapClient, 'connectionGen', 'get').mockReturnValue(1);
+    useEmailStore.setState({ mailboxes, activeAccountId: 'app1' } as never);
+    useSettingsStore.setState({
+      identities: [{ id: 'b', name: 'Bob', email: 'bob@x', mayDelete: false }], sendAccounts: {}, sendDelaySeconds: 30,
+    } as never);
+    // The login account recorded earlier, as on a cold start.
+    vi.mocked(recordedJmapAccountId).mockReturnValue('c');
+    const row = await queueOffline(undefined);
+    expect(row.identityId).toBe('b');
+    expect(sendRouted).not.toHaveBeenCalled();
   });
 });

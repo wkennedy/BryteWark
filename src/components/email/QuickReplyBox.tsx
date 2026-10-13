@@ -147,8 +147,14 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
     }
     // Your own account's identities, then each group's. The "you" addresses
     // are your own account's only: a group address is not yours in a reply.
-    const ownAccountId = jmapClient.accountId ?? '';
-    const accounts = sendAccounts[ownAccountId] ? sendAccounts : { ...sendAccounts, [ownAccountId]: { name: '', identities } };
+    // `connectedAccountId`, not `accountId` (which throws before a connection):
+    // a box mounted before the connection came up can still queue offline.
+    // Unconnected, only your own identities are known: no group is routed.
+    const connectedId = jmapClient.connectedAccountId;
+    const ownAccountId = connectedId ?? '';
+    const accounts = connectedId && sendAccounts[connectedId]
+      ? sendAccounts
+      : { [ownAccountId]: { name: '', identities } };
     const { list } = buildSendIdentities(ownAccountId, accounts);
     const ownEmails = ownAccountEmails(accounts, ownAccountId);
     // The identity the message was delivered to (or, for our own message,
@@ -233,6 +239,12 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
           })
         : '';
       if (!useNetworkStore.getState().online) {
+        // Only your own identity is ever queued; a routed one is refused.
+        if (plan.kind !== 'own') {
+          const { title, message } = sendErrorAlert(new Error('offline'), t);
+          Alert.alert(title, message);
+          return;
+        }
         if (
           !hasQueueAccounts(ownerAppAccountId, queueAccountId)
           || !shouldQueueSend({ online: false, uploadsDone: attachmentsUploaded(outgoing) })
