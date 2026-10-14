@@ -15,6 +15,27 @@ export function resolveIdentityAlias(id: string | null | undefined, aliases: Rec
 }
 
 /**
+ * The identity a new message starts from: the preferred one (an alias already
+ * followed), else the one matching the active account's address, else the
+ * undeletable primary, else the first. A preference naming an identity not in
+ * the list (stale, or a group identity no longer sendable) falls through.
+ */
+export function pickDefaultIdentityId(
+  list: SendIdentity[],
+  aliases: Record<string, string>,
+  preferredId: string | null | undefined,
+  activeEmail: string | null | undefined,
+): string | undefined {
+  const preferred = resolveIdentityAlias(preferredId, aliases);
+  return (
+    list.find((i) => i.id === preferred)
+    ?? list.find((i) => i.email.toLowerCase() === activeEmail?.toLowerCase())
+    ?? list.find((i) => !i.mayDelete)
+    ?? list[0]
+  )?.id;
+}
+
+/**
  * Identities eligible as the submission identity: only the chosen identity's
  * own account. Ids collide across accounts, so an override must never move a
  * send to an identity in another account.

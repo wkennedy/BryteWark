@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
-  ownAccountEmails, loadComposerSendIdentities, reselectIdentityId, signatureIdentityForSend,
+  pickDefaultIdentityId, ownAccountEmails, loadComposerSendIdentities, reselectIdentityId, signatureIdentityForSend,
 } from '../composer-route';
 import { writeIdentityCache } from '../identity-cache';
 import { RoutedSendError } from '../routed-send';
@@ -222,5 +222,26 @@ describe('signatureIdentityForSend', () => {
   });
   it('is null without an identity', () => {
     expect(signatureIdentityForSend(null, [ownPrimary])).toBeNull();
+  });
+});
+
+describe('pickDefaultIdentityId', () => {
+  const primary = { ...own, mayDelete: false };
+  const list = [ownWildcard, primary, routed];
+  it('takes the stored composite id of a group identity', () => {
+    expect(pickDefaultIdentityId(list, {}, 'f/b', 'x@y')).toBe('f/b');
+  });
+  it('follows a hidden duplicate to the group row', () => {
+    expect(pickDefaultIdentityId(list, { c: 'f/b' }, 'c', 'x@y')).toBe('f/b');
+  });
+  it('falls back like a missing own default when the group identity is gone', () => {
+    expect(pickDefaultIdentityId([ownWildcard, primary], {}, 'f/b', 'x@y')).toBe('b');
+    expect(pickDefaultIdentityId([ownWildcard, primary], {}, 'gone', 'x@y')).toBe('b');
+  });
+  it('prefers the active account address, then the primary, then the first', () => {
+    expect(pickDefaultIdentityId(list, {}, undefined, 'TEAM@x')).toBe('f/b');
+    expect(pickDefaultIdentityId(list, {}, undefined, 'nobody@y')).toBe('b');
+    expect(pickDefaultIdentityId([ownWildcard], {}, undefined, null)).toBe('w');
+    expect(pickDefaultIdentityId([], {}, 'f/b', 'x@y')).toBeUndefined();
   });
 });

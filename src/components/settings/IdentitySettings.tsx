@@ -27,6 +27,8 @@ import { useLocaleStore } from '../../stores/locale-store';
 import { isValidEmail, parseRecipientList, formatRecipient } from '../../lib/recipients';
 import { sanitizeDisplayName } from '../../lib/rfc5322-mailbox';
 import { sanitizeSignatureHtml } from '../../lib/signature-utils';
+import { buildSendIdentities, groupSendIdentities, type SendIdentity } from '../../lib/send-identities';
+import { resolveIdentityAlias } from '../../lib/composer-route';
 
 type DraftIdentity = {
   id: string;
@@ -102,7 +104,17 @@ export function IdentitySettings() {
   const preferredIdentityIds = useSettingsStore((s) => s.preferredIdentityIds);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const accountId = jmapClient.isConnected ? jmapClient.accountId : '';
-  const preferredId = accountId ? preferredIdentityIds[accountId] : undefined;
+  const sendAccounts = useSettingsStore((s) => s.sendAccounts);
+  // The stored value is a plain own id or a group's composite id; a hidden
+  // duplicate of a group address stands for the group's row.
+  const { sections, aliases } = React.useMemo(() => {
+    const shared = Object.keys(sendAccounts).some((a) => a !== accountId);
+    if (!accountId || !shared) return { sections: null, aliases: {} as Record<string, string> };
+    const built = buildSendIdentities(accountId, sendAccounts);
+    return { sections: groupSendIdentities(built.list, accountId), aliases: built.aliases };
+  }, [sendAccounts, accountId]);
+  const storedId = accountId ? preferredIdentityIds[accountId] : undefined;
+  const preferredId = resolveIdentityAlias(storedId, aliases) ?? undefined;
 
   const [editing, setEditing] = useState<DraftIdentity | null>(null);
   const [saving, setSaving] = useState(false);
@@ -116,7 +128,7 @@ export function IdentitySettings() {
   const openEdit = (i: Identity) => setEditing(toDraft(i));
   const closeEditor = () => setEditing(null);
 
-  const setAsDefault = (identity: Identity) => {
+  const setAsDefault = (identity: Identity | SendIdentity) => {
     if (!accountId) return;
     const next = { ...preferredIdentityIds };
     if (preferredId === identity.id) delete next[accountId];
@@ -219,6 +231,71 @@ export function IdentitySettings() {
     );
   };
 
+  // A group's row is star-only: its identity belongs to the group's account.
+  const total = sections ? sections.reduce((n, section) => n + section.identities.length, 0) : identities.length;
+  const renderRow = (identity: Identity, isGroup: boolean) => {
+    const starred = preferredId === identity.id;
+    const star = (
+      <Pressable
+        onPress={() => setAsDefault(identity)}
+        hitSlop={8}
+        style={styles.identityDelete}
+        accessibilityRole="button"
+        accessibilityLabel={t('identities.set_as_primary', 'Set as primary')}
+      >
+        <Star
+          size={16}
+          color={starred ? c.primary : c.textMuted}
+          fill={starred ? c.primary : 'transparent'}
+        />
+      </Pressable>
+    );
+    if (isGroup) {
+      return (
+        <View key={identity.id} style={styles.identityRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.identityName}>{identity.name || t('settings.identities.no_name', "(no name)")}</Text>
+            <Text style={styles.identityEmail}>{identity.email}</Text>
+          </View>
+          {star}
+        </View>
+      );
+    }
+    return (
+        <Pressable
+          key={identity.id}
+          onPress={() => openEdit(identity)}
+          style={({ pressed }) => [styles.identityRow, pressed && styles.identityRowPressed]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.identityName}>{identity.name || t('settings.identities.no_name', "(no name)")}</Text>
+            <Text style={styles.identityEmail}>{identity.email}</Text>
+          </View>
+          {total > 1 && star}
+          {!identity.mayDelete ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{t('settings.identities.primary', "primary")}</Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => confirmDelete(identity)}
+              hitSlop={8}
+              style={styles.identityDelete}
+              disabled={deletingId === identity.id}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.delete', "Delete")}
+            >
+              {deletingId === identity.id ? (
+                <ActivityIndicator size="small" color={c.error} />
+              ) : (
+                <Trash2 size={16} color={c.error} />
+              )}
+            </Pressable>
+          )}
+        </Pressable>
+    );
+  };
+
   const htmlBytes = utf8Bytes(editing?.htmlSignature ?? '');
   const textBytes = utf8Bytes(editing?.textSignature ?? '');
 
@@ -250,52 +327,15 @@ export function IdentitySettings() {
         </View>
       )}
 
-      {identities.map((identity) => (
-        <Pressable
-          key={identity.id}
-          onPress={() => openEdit(identity)}
-          style={({ pressed }) => [styles.identityRow, pressed && styles.identityRowPressed]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.identityName}>{identity.name || t('settings.identities.no_name', "(no name)")}</Text>
-            <Text style={styles.identityEmail}>{identity.email}</Text>
-          </View>
-          {identities.length > 1 && (
-            <Pressable
-              onPress={() => setAsDefault(identity)}
-              hitSlop={8}
-              style={styles.identityDelete}
-              accessibilityRole="button"
-              accessibilityLabel={t('identities.set_as_primary', 'Set as primary')}
-            >
-              <Star
-                size={16}
-                color={preferredId === identity.id ? c.primary : c.textMuted}
-                fill={preferredId === identity.id ? c.primary : 'transparent'}
-              />
-            </Pressable>
+      {(sections ?? [{ jmapAccountId: accountId, label: null, identities }]).map((section) => (
+        <View key={section.jmapAccountId}>
+          {sections && (
+            <Text style={styles.sectionLabel} numberOfLines={1}>
+              {section.label ?? t('email_composer.own_account', 'Your account')}
+            </Text>
           )}
-          {!identity.mayDelete ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{t('settings.identities.primary', "primary")}</Text>
-            </View>
-          ) : (
-            <Pressable
-              onPress={() => confirmDelete(identity)}
-              hitSlop={8}
-              style={styles.identityDelete}
-              disabled={deletingId === identity.id}
-              accessibilityRole="button"
-              accessibilityLabel={t('common.delete', "Delete")}
-            >
-              {deletingId === identity.id ? (
-                <ActivityIndicator size="small" color={c.error} />
-              ) : (
-                <Trash2 size={16} color={c.error} />
-              )}
-            </Pressable>
-          )}
-        </Pressable>
+          {section.identities.map((identity) => renderRow(identity, section.label !== null))}
+        </View>
       ))}
 
       <Modal visible={!!editing} animationType="slide" transparent onRequestClose={closeEditor}>
@@ -419,6 +459,7 @@ function makeStyles(c: ThemePalette) {
     identityName: { ...typography.bodyMedium, color: c.text },
     identityEmail: { ...typography.caption, color: c.mutedForeground, marginTop: 2 },
     identityDelete: { padding: 6 },
+    sectionLabel: { ...typography.captionMedium, color: c.textMuted, paddingTop: spacing.sm },
     badge: {
       paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.full,
       backgroundColor: c.primaryBg,
