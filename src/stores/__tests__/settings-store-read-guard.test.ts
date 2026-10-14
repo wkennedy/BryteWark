@@ -15,9 +15,10 @@ const KEY = 'webmail:settings:v1';
 const get = () => useSettingsStore.getState();
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-// Registered on the first failed read; this file's own module instance.
+// Registered once, on the first failed read in this file's module instance,
+// so the listener is kept here: the spy's calls are cleared between tests.
 const foreground: ((state: string) => void)[] = [];
-const listen = vi.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, fn: (state: string) => void) => {
+vi.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, fn: (state: string) => void) => {
   foreground.push(fn);
   return { remove: () => undefined };
 }) as never);
@@ -107,7 +108,7 @@ describe('settings writes over a failed read', () => {
     expect(await AsyncStorage.getItem(KEY)).toBe(stored);
 
     // Back in the foreground the read works.
-    expect(listen).toHaveBeenCalled();
+    expect(foreground.length).toBeGreaterThan(0);
     for (const fn of foreground) fn('active');
     await flush();
     await flush();
