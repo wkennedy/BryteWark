@@ -5,6 +5,7 @@ import type { SendableIdentities } from '../api/identity';
 import { inAccount, type OpScope } from '../api/op-scope';
 import { loadComposerIdentities, type ComposerIdentities } from './identity-cache';
 import { RoutedSendError } from './routed-send';
+import { signatureIdentityFor } from './signature-utils';
 import { buildSendIdentities, routeOfIdentity, type SendIdentity } from './send-identities';
 
 /** The id a saved preference or template names, after the hidden-duplicate alias. */
@@ -20,6 +21,17 @@ export function resolveIdentityAlias(id: string | null | undefined, aliases: Rec
  */
 export function sameAccountIdentities(list: SendIdentity[], chosen: SendIdentity): SendIdentity[] {
   return list.filter((i) => i.jmapAccountId === chosen.jmapAccountId);
+}
+
+/**
+ * The identity whose signature `identity` carries when it has none: its own
+ * account's primary, never another account's (so a group alias never borrows yours).
+ */
+export function signatureIdentityForSend(
+  identity: SendIdentity | null | undefined,
+  list: SendIdentity[],
+): SendIdentity | null {
+  return signatureIdentityFor(identity, identity ? sameAccountIdentities(list, identity) : []);
 }
 
 export type ComposerSendPlan =

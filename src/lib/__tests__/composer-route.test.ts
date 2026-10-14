@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   resolveIdentityAlias, sameAccountIdentities, planComposerSend, sendCapabilityAccountId, composerIdentitySet,
-  ownAccountEmails, loadComposerSendIdentities, reselectIdentityId,
+  ownAccountEmails, loadComposerSendIdentities, reselectIdentityId, signatureIdentityForSend,
 } from '../composer-route';
 import { writeIdentityCache } from '../identity-cache';
 import { RoutedSendError } from '../routed-send';
@@ -194,5 +194,33 @@ describe('reselectIdentityId', () => {
   });
   it('keeps a choice with no alias for the selection rules to handle', () => {
     expect(reselectIdentityId('gone', fresh)).toBe('gone');
+  });
+});
+
+describe('signatureIdentityForSend', () => {
+  const sig = (i: SendIdentity, textSignature?: string): SendIdentity => ({ ...i, textSignature });
+  const ownPrimary = sig({ ...ident('1', 'me@x', 'a', 'Me'), mayDelete: false }, 'mine');
+  const ownAlias = sig(ident('2', 'alias@x', 'a', 'Me'));
+  const groupPrimary = (textSignature?: string) =>
+    sig({ ...ident('f/7', 'team@x', 'f', 'Team'), mayDelete: false }, textSignature);
+  const groupAlias = sig(ident('f/8', 'sales@x', 'f', 'Team'));
+
+  it('gives a group identity without a signature none of yours', () => {
+    const list = [ownPrimary, ownAlias, groupPrimary(), groupAlias];
+    expect(signatureIdentityForSend(groupAlias, list)).toBeNull();
+  });
+  it('gives a group identity its own account primary signature', () => {
+    const gp = groupPrimary('team sig');
+    expect(signatureIdentityForSend(groupAlias, [ownPrimary, ownAlias, gp, groupAlias])).toBe(gp);
+  });
+  it('keeps an identity that has its own signature', () => {
+    const signed = sig(ident('f/9', 'x@x', 'f', 'Team'), 'own');
+    expect(signatureIdentityForSend(signed, [ownPrimary, groupPrimary(), signed])).toBe(signed);
+  });
+  it('still gives your own alias your own primary signature', () => {
+    expect(signatureIdentityForSend(ownAlias, [ownPrimary, ownAlias, groupPrimary('team sig'), groupAlias])).toBe(ownPrimary);
+  });
+  it('is null without an identity', () => {
+    expect(signatureIdentityForSend(null, [ownPrimary])).toBeNull();
   });
 });

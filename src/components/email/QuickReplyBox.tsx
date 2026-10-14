@@ -31,7 +31,7 @@ import { buildReplyRecipients } from '../../lib/reply-recipients';
 import { buildReplySubject } from '../../lib/subject-prefix';
 import { computeReplyThreadingHeaders } from '../../lib/email-threading';
 import { resolveReplyIdentity } from '../../lib/reply-identity';
-import { signatureIdentityFor, signPlainTextReply } from '../../lib/signature-utils';
+import { signPlainTextReply } from '../../lib/signature-utils';
 import { pickEmailBody, plainTextBody } from '../../lib/email-body';
 import { htmlToPlainText } from '../../lib/compose-html';
 import { useDateRegion } from '../../lib/use-date-region';
@@ -39,7 +39,7 @@ import { ownMailboxes } from '../../lib/mailbox-tree';
 import { emailDisplayDate } from '../../lib/email-date';
 import { sendErrorAlert } from '../../lib/send-errors';
 import { buildSendIdentities } from '../../lib/send-identities';
-import { planComposerSend, ownAccountEmails, sendCapabilityAccountId } from '../../lib/composer-route';
+import { planComposerSend, ownAccountEmails, sendCapabilityAccountId, signatureIdentityForSend } from '../../lib/composer-route';
 import { sendRouted } from '../../lib/routed-send';
 import { formatRejectedRecipients } from '../../api/jmap-result';
 import { buildQuoteHeader, quoteHeaderLabels } from '../../lib/quote-header';
@@ -214,7 +214,7 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
         subject: buildReplySubject(email.subject, t('email_composer.prefix.reply', 'Re:')),
         // Signed as the composer signs a plain-text reply; an alias without a
         // signature of its own carries the primary identity's.
-        textBody: signPlainTextReply(body, `${header.text}${quoted}`, signatureIdentityFor(identity, list), {
+        textBody: signPlainTextReply(body, `${header.text}${quoted}`, signatureIdentityForSend(identity, list), {
           position: signaturePosition,
           separator: signatureSeparatorEnabled,
         }),

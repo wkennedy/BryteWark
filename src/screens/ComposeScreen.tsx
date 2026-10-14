@@ -66,6 +66,7 @@ import { useSendQueueStore, SendTooLargeToQueueError, AlreadyQueuedError } from 
 import { envelopeFallbackIdentity, overrideEnvelope, pickSubmissionIdentity } from '../lib/envelope-sender';
 import {
   loadComposerSendIdentities, planComposerSend, reselectIdentityId, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
+  signatureIdentityForSend,
   type ComposerIdentitySet,
 } from '../lib/composer-route';
 import { sendRouted } from '../lib/routed-send';
@@ -91,7 +92,7 @@ import {
 } from '../lib/reply-identity';
 import { shouldBlockEditorRemoteImages } from '../lib/editor-html';
 import {
-  signatureIdentityFor, buildEmbeddedSignatureHtml, containsEmbeddedSignature, spliceSignature,
+  buildEmbeddedSignatureHtml, containsEmbeddedSignature, spliceSignature,
   insertSignatureAboveQuote, getPlainTextSignature, appendPlainTextSignature,
   plainTextBodyHasSignature, plainTextBodyWithoutSignature, SIGNATURE_RANGE_MARKER,
 } from '../lib/signature-utils';
@@ -1330,7 +1331,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
 
   // An alias without a signature falls back to the primary identity's.
   const signatureIdentity = React.useMemo(
-    () => signatureIdentityFor(primaryIdentity, identities),
+    () => signatureIdentityForSend(primaryIdentity, identities),
     [primaryIdentity, identities],
   );
 
