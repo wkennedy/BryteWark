@@ -105,14 +105,17 @@ export function IdentitySettings() {
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const accountId = jmapClient.isConnected ? jmapClient.accountId : '';
   const sendAccounts = useSettingsStore((s) => s.sendAccounts);
-  // The stored value is a plain own id or a group's composite id; a hidden
+  // The stored value is a plain own id or a group's composite id; your own
   // duplicate of a group address stands for the group's row.
   const { sections, aliases } = React.useMemo(() => {
     const shared = Object.keys(sendAccounts).some((a) => a !== accountId);
     if (!accountId || !shared) return { sections: null, aliases: {} as Record<string, string> };
     const built = buildSendIdentities(accountId, sendAccounts);
-    return { sections: groupSendIdentities(built.list, accountId), aliases: built.aliases };
-  }, [sendAccounts, accountId]);
+    const [own, ...groups] = groupSendIdentities(built.list, accountId);
+    // Every own identity stays here to edit or delete, a group's duplicate too.
+    const listed: { jmapAccountId: string; label: string | null; identities: Identity[] }[] = [{ ...own, identities }, ...groups];
+    return { sections: listed, aliases: built.aliases };
+  }, [sendAccounts, accountId, identities]);
   const storedId = accountId ? preferredIdentityIds[accountId] : undefined;
   const preferredId = resolveIdentityAlias(storedId, aliases) ?? undefined;
 
@@ -232,6 +235,7 @@ export function IdentitySettings() {
   };
 
   // A group's row is star-only: its identity belongs to the group's account.
+  // Your own duplicate of it has no star: the group row carries the default.
   const total = sections ? sections.reduce((n, section) => n + section.identities.length, 0) : identities.length;
   const renderRow = (identity: Identity, isGroup: boolean) => {
     const starred = preferredId === identity.id;
@@ -262,37 +266,37 @@ export function IdentitySettings() {
       );
     }
     return (
-        <Pressable
-          key={identity.id}
-          onPress={() => openEdit(identity)}
-          style={({ pressed }) => [styles.identityRow, pressed && styles.identityRowPressed]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.identityName}>{identity.name || t('settings.identities.no_name', "(no name)")}</Text>
-            <Text style={styles.identityEmail}>{identity.email}</Text>
+      <Pressable
+        key={identity.id}
+        onPress={() => openEdit(identity)}
+        style={({ pressed }) => [styles.identityRow, pressed && styles.identityRowPressed]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.identityName}>{identity.name || t('settings.identities.no_name', "(no name)")}</Text>
+          <Text style={styles.identityEmail}>{identity.email}</Text>
+        </View>
+        {total > 1 && !aliases[identity.id] && star}
+        {!identity.mayDelete ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{t('settings.identities.primary', "primary")}</Text>
           </View>
-          {total > 1 && star}
-          {!identity.mayDelete ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{t('settings.identities.primary', "primary")}</Text>
-            </View>
-          ) : (
-            <Pressable
-              onPress={() => confirmDelete(identity)}
-              hitSlop={8}
-              style={styles.identityDelete}
-              disabled={deletingId === identity.id}
-              accessibilityRole="button"
-              accessibilityLabel={t('common.delete', "Delete")}
-            >
-              {deletingId === identity.id ? (
-                <ActivityIndicator size="small" color={c.error} />
-              ) : (
-                <Trash2 size={16} color={c.error} />
-              )}
-            </Pressable>
-          )}
-        </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => confirmDelete(identity)}
+            hitSlop={8}
+            style={styles.identityDelete}
+            disabled={deletingId === identity.id}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.delete', "Delete")}
+          >
+            {deletingId === identity.id ? (
+              <ActivityIndicator size="small" color={c.error} />
+            ) : (
+              <Trash2 size={16} color={c.error} />
+            )}
+          </Pressable>
+        )}
+      </Pressable>
     );
   };
 

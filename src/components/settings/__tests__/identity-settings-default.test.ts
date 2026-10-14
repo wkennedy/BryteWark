@@ -48,11 +48,12 @@ function setup(state: Record<string, unknown>) {
   } as never);
   return renderComponent(IdentitySettings, {});
 }
-// The row holding `email` for the section it sits in: group rows are View, own rows Pressable.
+// The elements of `type` holding `email`: group rows are View, own rows Pressable.
 const row = (view: ReturnType<typeof setup>, email: string, type: string) =>
-  findAll(view.tree(), (p) => text(p.children).includes(email)).length
-    ? (findAll(view.tree(), () => true) as ReactElement<any>[]).filter((e) => e.type === type && text(e.props.children).includes(email) && findAll(e.props.children, (p) => 'accessibilityLabel' in p || 'fill' in p).length >= 0)
-    : [];
+  findAll(view.tree(), () => true).filter((e) => e.type === type && text(e.props.children).includes(email));
+// The innermost View with a star and no delete: the group's team@ row.
+const groupRow = (view: ReturnType<typeof setup>) =>
+  row(view, 'team@x', 'View').filter((e) => stars(e).length === 1 && !hasDelete(e)).pop();
 
 describe('IdentitySettings default-sender star', () => {
   beforeEach(() => {
@@ -67,18 +68,28 @@ describe('IdentitySettings default-sender star', () => {
     const all = text(view.tree());
     expect(all).toContain('Team');
     expect(all).toContain('Your account');
-    // team@ appears once among the own rows (hidden duplicate) and once as the group row.
-    const [group] = row(view, 'team@x', 'View').filter((e) => !findAll(e, (p) => p.accessibilityLabel === 'Delete').length && stars(e).length);
+    const group = groupRow(view)!;
     expect(group).toBeDefined();
     expect(stars(group)).toHaveLength(1);
     expect(hasDelete(group)).toBe(false);
-    // Name and address of the one row: the hidden own duplicate adds none.
-    expect(all.filter((s) => s === 'team@x')).toHaveLength(2);
+    // Name and address of the group row and of your own duplicate.
+    expect(all.filter((s) => s === 'team@x')).toHaveLength(4);
+  });
+
+  it('keeps your own identity a group duplicates editable and deletable, without a star', () => {
+    const view = setup({});
+    const [own] = row(view, 'team@x', 'Pressable').filter((e) => typeof e.props.style === 'function');
+    expect(own).toBeDefined();
+    expect(hasDelete(own)).toBe(true);
+    // The group row carries the default star.
+    expect(stars(own)).toHaveLength(0);
+    own.props.onPress();
+    expect(findElement(view.tree(), (p) => p.visible === true)).not.toBeNull();
   });
 
   it('stores the composite id when a group row is starred', () => {
     const view = setup({});
-    const [group] = row(view, 'team@x', 'View').filter((e) => stars(e).length);
+    const group = groupRow(view)!;
     stars(group)[0].props.onPress();
     expect(updateSetting).toHaveBeenCalledWith('preferredIdentityIds', { a: 'f/t1' });
   });
@@ -96,7 +107,7 @@ describe('IdentitySettings default-sender star', () => {
   it('fills the star of a stored composite id, and of a plain id aliased to the group row', () => {
     for (const stored of ['f/t1', 'c']) {
       const view = setup({ preferredIdentityIds: { a: stored } });
-      const [group] = row(view, 'team@x', 'View').filter((e) => stars(e).length);
+      const group = groupRow(view)!;
       expect(starFill(group)).toBe('#000');
       const [own] = row(view, 'bob2@x', 'Pressable').filter((e) => e.props.style);
       expect(starFill(own)).toBe('transparent');
@@ -106,7 +117,7 @@ describe('IdentitySettings default-sender star', () => {
 
   it('un-stars an aliased default by removing it', () => {
     const view = setup({ preferredIdentityIds: { a: 'c' } });
-    const [group] = row(view, 'team@x', 'View').filter((e) => stars(e).length);
+    const group = groupRow(view)!;
     stars(group)[0].props.onPress();
     expect(updateSetting).toHaveBeenCalledWith('preferredIdentityIds', {});
   });
