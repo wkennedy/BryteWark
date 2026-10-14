@@ -1,10 +1,25 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending on `parity/shared-account-sending`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups on `parity/shared-send-followups`, which are not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Shared-account sending (unmerged)
+## Shared-account sending follow-ups (unmerged)
+
+Branch `parity/shared-send-followups`. It tightens shared-account sending: who a group's tagged address may be, which address sends unsubscribe mail and read receipts, and what a group identity signs with.
+
+### Fixes
+- A group's tagged address must extend the group's full address. With a non-default separator, team-sales@ no longer accepts team-ops@. A group address that itself contains the separator can't use the composer's tag (b6aae53).
+- A group identity without a signature uses its own group's main signature, never yours (35504e2).
+- Attachment copies into a group's account name the blob capability when either account advertises it (47a5a6d).
+- The identity cache keeps your own account first, also with numeric account ids (6835f44).
+- An undone send that can't be reopened shows an alert naming the Sent folder it is still in, also for a group send while disconnected (c212a17, d7f2f7e).
+
+### Improvements
+- A group identity can be the default sender: star it in Settings (d494ccf).
+- Unsubscribe mail and read receipts for mail a group received are sent from the group address and filed in the group's Sent. When that isn't possible, or offline, they are refused and never sent from your own address (7c72344).
+
+## Shared-account sending (#22)
 
 Branch `parity/shared-account-sending`. You can send as a group address (team@) from the group's own account, so the copy is filed in the group's Sent, as the webmail does. Checked against a throwaway Stalwart 0.16.25 (`scripts/stalwart-shared-send-it.sh`).
 
