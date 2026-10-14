@@ -2,10 +2,12 @@ import type { Email, Identity } from '../api/types';
 import { getIdentities, type SendableIdentities } from '../api/identity';
 import { resolveSendMailboxes } from '../api/sent-lookup';
 import type { OpScope } from '../api/op-scope';
-import { buildSendIdentities, identitySendsAsOrSubaddress, type SendIdentity } from './send-identities';
+import { jmapClient } from '../api/jmap-client';
+import { identitySendsAsOrSubaddress, routedIdentityId, type SendIdentity } from './send-identities';
 import { resolveReplyFrom } from './reply-identity';
 
-export type RoutedSendReason = 'offline' | 'no_folders' | 'identity_gone' | 'from_override' | 'blob_copy';
+export type RoutedSendReason =
+  | 'offline' | 'no_folders' | 'identity_gone' | 'from_override' | 'blob_copy' | 'no_group_identity';
 
 /** A send from a shared account's identity that was refused before anything reached the server. */
 export class RoutedSendError extends Error {
@@ -45,42 +47,53 @@ export async function verifyGroupSender(
   return { sentId, draftsId, identity };
 }
 
+const isWildcard = (i: Pick<Identity, 'email'>) => i.email.trim().startsWith('*@');
+
 /**
- * The shared account's identity that received a message sitting in that
- * account (To, Cc or Bcc; exact, then `+tag`), which answers it for the
- * group. Undefined for mail in your own account, or when none of the
- * group's addresses received it: unlike `findReceivingIdentity` there is no
- * fall back, so the caller keeps its own-identity path.
+ * A shared account's main identity: its first `!mayDelete` one, else its
+ * first, never a catch-all (`*@…`), as the signature's primary pick.
  */
-export function receivingSendIdentity(
-  list: SendIdentity[],
-  email: Pick<Email, 'to' | 'cc' | 'bcc'>,
-  messageJmapAccountId: string | undefined,
-  ownJmapAccountId: string,
-): SendIdentity | undefined {
-  if (!messageJmapAccountId || messageJmapAccountId === ownJmapAccountId) return undefined;
-  const group = list.filter((i) => i.jmapAccountId === messageJmapAccountId);
-  const resolved = resolveReplyFrom(group, {
-    to: email.to ?? undefined, cc: email.cc ?? undefined, bcc: email.bcc ?? undefined,
-  });
-  if (!resolved || resolved.overrideEmail) return undefined;
-  return group.find((i) => i.id === resolved.identityId);
+export function mainSendIdentity<T extends Pick<Identity, 'email' | 'mayDelete'>>(identities: T[]): T | undefined {
+  const named = identities.filter((i) => !isWildcard(i));
+  return named.find((i) => !i.mayDelete) ?? named[0];
 }
 
 /**
- * `receivingSendIdentity` over your own identities and each group's, built as
- * the quick reply builds them. `ownAccountId` is the connected account
- * (`connectedAccountId`): unconnected, only your own identities are known and
- * no group answers.
+ * Who answers a message (unsubscribe mail, read receipt): `own` for mail in
+ * your own account; for mail in a shared account, never you (your address
+ * would show to the list) but `group`, that account's identity which received
+ * it (To, Cc or Bcc; exact, then `+tag`), else its main identity; `refused`
+ * when the account has none to send from (a folder-only share, or catch-alls
+ * only), with its name for the alert.
  */
-export function groupReceiver(p: {
+export type MessageAnswerer =
+  | { kind: 'own' }
+  | { kind: 'group'; identity: SendIdentity }
+  | { kind: 'refused'; account: string };
+
+/**
+ * `MessageAnswerer` for a message in `messageJmapAccountId` (undefined: your
+ * own). `ownAccountId` is the connected account (`connectedAccountId`):
+ * unconnected, a message in another account is never taken for yours.
+ */
+export function messageAnswerer(p: {
   email: Pick<Email, 'to' | 'cc' | 'bcc'>;
   messageJmapAccountId: string | undefined;
   ownAccountId: string | null;
   sendAccounts: SendableIdentities;
-}): SendIdentity | undefined {
-  const { ownAccountId, sendAccounts } = p;
-  if (!ownAccountId || !sendAccounts[ownAccountId]) return undefined;
-  const { list } = buildSendIdentities(ownAccountId, sendAccounts);
-  return receivingSendIdentity(list, p.email, p.messageJmapAccountId, ownAccountId);
+}): MessageAnswerer {
+  const at = p.messageJmapAccountId;
+  if (!at || at === p.ownAccountId) return { kind: 'own' };
+  const account = p.sendAccounts[at];
+  const group: SendIdentity[] = (account?.identities ?? []).map((i) => ({
+    ...i, id: routedIdentityId(at, i.id), jmapAccountId: at, accountName: account.name,
+  }));
+  const resolved = resolveReplyFrom(group, {
+    to: p.email.to ?? undefined, cc: p.email.cc ?? undefined, bcc: p.email.bcc ?? undefined,
+  });
+  // A catch-all that received it gives no address to send as: the main one does.
+  const received = resolved && !resolved.overrideEmail ? group.find((i) => i.id === resolved.identityId) : undefined;
+  const identity = received && !isWildcard(received) ? received : mainSendIdentity(group);
+  if (identity) return { kind: 'group', identity };
+  return { kind: 'refused', account: account?.name ?? jmapClient.getAccountName(at) ?? at };
 }

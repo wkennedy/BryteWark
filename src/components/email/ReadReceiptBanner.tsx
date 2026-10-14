@@ -13,7 +13,7 @@ import { sendReadReceipt, patchKeywordsForEmails } from '../../api/email';
 import { jmapClient } from '../../api/jmap-client';
 import { findReceivingIdentity } from '../../lib/email-headers';
 import { ownMailboxes } from '../../lib/mailbox-tree';
-import { groupReceiver, verifyGroupSender, RoutedSendError } from '../../lib/group-sender';
+import { messageAnswerer, verifyGroupSender, RoutedSendError } from '../../lib/group-sender';
 import { routeOfIdentity } from '../../lib/send-identities';
 import { sendErrorAlert } from '../../lib/send-errors';
 import { useNetworkStore } from '../../stores/network-store';
@@ -71,6 +71,12 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
 
   const eligibleFolder = !['sent', 'drafts', 'trash', 'junk', 'spam'].includes(currentMailboxRole || '');
   const identity = React.useMemo(() => findReceivingIdentity(identities, email), [identities, email]);
+  // Who would answer: mail in a shared account never from you, and not
+  // offered at all when that account has nothing to send from.
+  const answerer = React.useMemo(
+    () => messageAnswerer({ email, messageJmapAccountId: jmapAccountId, ownAccountId: jmapClient.connectedAccountId, sendAccounts }),
+    [email, jmapAccountId, sendAccounts],
+  );
   const shouldOffer =
     !!requestedBy
     && !email.keywords?.$mdnsent
@@ -78,7 +84,7 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     && !handledLocally
     && readReceiptResponse !== 'never'
     && eligibleFolder
-    && !!identity;
+    && (answerer.kind === 'own' ? !!identity : answerer.kind === 'group');
 
   const flagSent = React.useCallback(async (at?: OpScope) => {
     try {
@@ -93,14 +99,17 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
   ), [t]);
 
   const send = React.useCallback(async (automatic: boolean) => {
-    if (!identity) return;
-    // A message one of a group's addresses received is answered from that
-    // group, into its Sent, after the group-sender check; refused rather than
-    // sent from your own address. `connectedAccountId`, not `accountId`
-    // (which throws before a connection).
-    const group = groupReceiver({
+    // A message in a shared account is answered from that account's identity,
+    // into its Sent, after the group-sender check; refused rather than sent
+    // from your own address. `connectedAccountId`, not `accountId` (which
+    // throws before a connection).
+    const answerer = messageAnswerer({
       email, messageJmapAccountId: jmapAccountId, ownAccountId: jmapClient.connectedAccountId, sendAccounts,
     });
+    if (answerer.kind === 'refused') throw new RoutedSendError('no_group_identity', '', answerer.account);
+    const group = answerer.kind === 'group' ? answerer.identity : undefined;
+    const sender = group ?? identity;
+    if (!sender) return;
     // A group send never queues: offline it is refused.
     if (group && (!useNetworkStore.getState().online || !jmapClient.isConnected)) {
       throw new RoutedSendError('offline', group.email, group.accountName);
@@ -108,20 +117,17 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     // Never from another account's identity: refused once another is shown.
     // `$mdnsent` is set in the message's account, on the same connection.
     const base = requireShownAccountScope(ownerAppAccountId);
-    let sender: { email: string; name?: string };
     let submit: { at: OpScope; identityId: string; sentMailboxId: string };
     if (group) {
       const route = routeOfIdentity(group);
       const at = inAccount(base, route.jmapAccountId);
       const { sentId } = await verifyGroupSender(at, route, [group.email], '+', group.accountName, group.email);
-      sender = group;
       submit = { at, identityId: route.identityId, sentMailboxId: sentId };
     } else {
-      // Sent of the account the receipt is submitted from: the user's own.
+      // Mail in your own account: your own identity, into your own Sent.
       const sent = ownMailboxes(mailboxes).find((m) => m.role === 'sent');
       if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
-      sender = identity;
-      submit = { at: base, identityId: identity.id, sentMailboxId: sent.originalId ?? sent.id };
+      submit = { at: base, identityId: sender.id, sentMailboxId: sent.originalId ?? sent.id };
     }
     await sendReadReceipt({
       to: requestedBy,

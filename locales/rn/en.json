@@ -335,6 +335,7 @@
     "routed_from_override": "A custom From can't be used when sending from {account}.",
     "routed_identity_gone": "You can no longer send from {address} in {account}.",
     "routed_no_folders": "{account} has no Sent or Drafts folder, so mail can't be sent from {address}.",
+    "routed_no_group_identity": "You can't send from {account}, so this can't be done here.",
     "routed_offline": "Connect to send from {address}.",
     "save_draft": "Save Draft",
     "save_failed_no_drafts": "There is no Drafts folder to save this draft to.",

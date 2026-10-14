@@ -70,6 +70,15 @@ export function sendErrorAlert(
             { address, account },
           ),
         };
+      case 'no_group_identity':
+        return {
+          title,
+          message: t(
+            'email_composer.routed_no_group_identity',
+            "You can't send from {account}, so this can't be done here.",
+            { account },
+          ),
+        };
     }
   }
   if (e instanceof RequestTimeoutError || e instanceof SendUnconfirmedError) {

@@ -14,7 +14,7 @@ import { isValidUnsubscribeUrl, parseUnsubscribeMailto, unsubscribeConfirmDetail
 import type { ListHeaders } from '../../lib/email-headers';
 import { findReceivingIdentity } from '../../lib/email-headers';
 import { ownMailboxes } from '../../lib/mailbox-tree';
-import { groupReceiver } from '../../lib/group-sender';
+import { messageAnswerer } from '../../lib/group-sender';
 import { routeOfIdentity } from '../../lib/send-identities';
 import { sendRouted, RoutedSendError } from '../../lib/routed-send';
 import { sendErrorAlert } from '../../lib/send-errors';
@@ -123,13 +123,15 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId, appA
           subject: mailtoFields.subject ?? '',
           textBody: mailtoFields.body ?? '',
         });
-        // A newsletter one of a group's addresses received is answered from
-        // that group, into its Sent; refused rather than sent from your own
+        // A newsletter in a shared account is answered from that account's
+        // identity, into its Sent; refused rather than sent from your own
         // address, which would show it to the list. `connectedAccountId`, not
         // `accountId` (which throws before a connection).
         const ownAccountId = jmapClient.connectedAccountId;
-        const group = groupReceiver({ email, messageJmapAccountId: jmapAccountId, ownAccountId, sendAccounts });
-        if (group) {
+        const answerer = messageAnswerer({ email, messageJmapAccountId: jmapAccountId, ownAccountId, sendAccounts });
+        if (answerer.kind === 'refused') throw new RoutedSendError('no_group_identity', '', answerer.account);
+        if (answerer.kind === 'group') {
+          const group = answerer.identity;
           // A group send never queues: offline it is refused.
           if (!useNetworkStore.getState().online || !jmapClient.isConnected) {
             throw new RoutedSendError('offline', group.email, group.accountName);
@@ -147,8 +149,7 @@ export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId, appA
           const at = requireShownAccountScope(ownerAppAccountId);
           const identity = findReceivingIdentity(identities, email) ?? identities[0];
           if (!identity) throw new Error(t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
-          // Sent/Drafts of the account the mail is submitted from: the user's
-          // own, when no group of a shared account received it.
+          // Mail in your own account: your own Sent and Drafts.
           const own = ownMailboxes(mailboxes);
           const sent = own.find((m) => m.role === 'sent');
           const drafts = own.find((m) => m.role === 'drafts');

@@ -172,5 +172,7 @@ describe('sendErrorAlert for a routed refusal', () => {
       .toBe("The attachments couldn't be copied to Team. Nothing was sent.");
     expect(sendErrorAlert(new RoutedSendError('from_override', 'bob@x', 'Team'), ti).message)
       .toBe("A custom From can't be used when sending from Team.");
+    expect(sendErrorAlert(new RoutedSendError('no_group_identity', '', 'Team'), ti).message)
+      .toBe("You can't send from Team, so this can't be done here.");
   });
 });

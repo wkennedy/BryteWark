@@ -56,7 +56,7 @@ const mailboxes: Mailbox[] = [
   mb({ id: 'f:sent', originalId: 'shared-sent', role: 'sent', isShared: true, accountId: 'f' }),
   mb({ id: 'f:drafts', originalId: 'shared-drafts', role: 'drafts', isShared: true, accountId: 'f' }),
 ];
-// In the shared account `f`, addressed only to you.
+// In the shared account `f`, addressed only to you (a list copy in the group folder).
 const email = {
   id: 'm1', subject: 'Hi', messageId: '<m@x>', from: [{ email: 'news@x' }], to: [{ email: 'bob@x' }], keywords: {},
 } as unknown as Email;
@@ -64,6 +64,9 @@ const email = {
 const groupEmail = { ...email, id: 'm-team', to: [{ email: 'team@x' }] } as unknown as Email;
 const bob = { id: 'b', name: 'Bob', email: 'bob@x', mayDelete: false };
 const team = { id: 't', name: 'Team', email: 'team@x', mayDelete: false };
+// In `f`, sent to an alias on the group's domain that only its catch-all covers.
+const aliasEmail = { ...email, id: 'm-alias', to: [{ email: 'hello@x' }] } as unknown as Email;
+const catchAll = { id: 'w', name: 'Any', email: '*@x', mayDelete: true };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -87,9 +90,9 @@ afterEach(() => resetHooks());
 
 describe('UnsubscribeBanner mailto on a shared-account message', () => {
   const list = { listUnsubscribe: { preferred: 'mailto', mailto: 'mailto:unsub@news.example' } } as never;
-  const confirmUnsubscribe = async (appAccountId: string, message: Email = email) => {
+  const confirmUnsubscribe = async (appAccountId: string, message: Email = email, jmapAccountId = 'f') => {
     const view = renderComponent(UnsubscribeBanner, {
-      email: message, list, messageKey: 'k1', jmapAccountId: 'f', appAccountId,
+      email: message, list, messageKey: 'k1', jmapAccountId, appAccountId,
     }, { effects: true });
     await new Promise((r) => setTimeout(r, 0));
     // The unsubscribe button: the one pressable that is not the labelled dismiss.
@@ -104,14 +107,48 @@ describe('UnsubscribeBanner mailto on a shared-account message', () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it('sends from the own account with the own Sent and Drafts when only you received it', async () => {
-    await confirmUnsubscribe('app1');
-    const [, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
+  it('sends from the own account with the own Sent and Drafts for mail in your own account', async () => {
+    await confirmUnsubscribe('app1', email, 'c');
+    const [outgoing, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
+    expect(outgoing.from).toEqual([{ name: 'Bob', email: 'bob@x' }]);
     expect(identityId).toBe('b');
     expect(sentId).toBe('own-sent');
     expect(opts.draftsMailboxId).toBe('own-drafts');
     expect(opts.accountId.accountId).toBe('c');
     expect(resolveSendMailboxes).not.toHaveBeenCalled();
+  });
+
+  it('sends a list copy in the group folder from the group main identity, never yours', async () => {
+    await confirmUnsubscribe('app1');
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const [outgoing, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
+    expect(outgoing.from).toEqual([{ name: 'Team', email: 'team@x' }]);
+    expect(identityId).toBe('t');
+    expect(sentId).toBe('g-sent');
+    expect(opts.draftsMailboxId).toBe('g-drafts');
+    expect(opts.accountId).toEqual({ gen: 1, accountId: 'f' });
+    expect(getIdentities).toHaveBeenCalledWith({ gen: 1, accountId: 'f' });
+  });
+
+  it('answers mail a group catch-all received from the main non-wildcard identity', async () => {
+    useSettingsStore.setState({
+      sendAccounts: { c: { name: 'Bob', identities: [bob] }, f: { name: 'Team', identities: [catchAll, team] } },
+    } as never);
+    getIdentities.mockResolvedValue([catchAll, team]);
+    await confirmUnsubscribe('app1', aliasEmail);
+    const [outgoing, identityId, sentId, , opts] = vi.mocked(sendEmail).mock.calls[0] as any[];
+    expect(outgoing.from).toEqual([{ name: 'Team', email: 'team@x' }]);
+    expect(identityId).toBe('t');
+    expect(sentId).toBe('g-sent');
+    expect(opts.accountId).toEqual({ gen: 1, accountId: 'f' });
+  });
+
+  it('is refused for a share you cannot send from, never sent from your own account', async () => {
+    vi.spyOn(jmapClient, 'getAccountName').mockImplementation((id) => (id === 'h' ? 'Projects' : undefined));
+    await confirmUnsubscribe('app1', email, 'h');
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(resolveSendMailboxes).not.toHaveBeenCalled();
+    expect(vi.mocked(Alert.alert).mock.calls[1][1]).toBe("You can't send from Projects, so this can't be done here.");
   });
 
   it('sends from the group that received it, into the group Sent', async () => {
@@ -147,9 +184,9 @@ describe('UnsubscribeBanner mailto on a shared-account message', () => {
 });
 
 describe('ReadReceiptBanner on a shared-account message', () => {
-  const sendReceipt = async (message: Email = email) => {
+  const sendReceipt = async (message: Email = email, jmapAccountId = 'f') => {
     const view = renderComponent(ReadReceiptBanner, {
-      email: message, requestedBy: 'news@x', jmapAccountId: 'f', appAccountId: 'app1', currentMailboxRole: 'inbox',
+      email: message, requestedBy: 'news@x', jmapAccountId, appAccountId: 'app1', currentMailboxRole: 'inbox',
       active: true, onHandled: vi.fn(),
     });
     await findElement(view.tree(), (p) => typeof p.onPress === 'function' && p.hitSlop === 8)!.props.onPress();
@@ -195,26 +232,60 @@ describe('ReadReceiptBanner on a shared-account message', () => {
     expect(vi.mocked(Alert.alert).mock.calls[0][1]).toBe('You can no longer send from team@x in Team.');
   });
 
-  it('submits the receipt from the own account when only you received it, flagging $mdnsent in the message account', async () => {
+  it('submits the receipt from the group main identity when no group address received it, never yours', async () => {
     await sendReceipt();
+    const arg = vi.mocked(sendReadReceipt).mock.calls[0][0] as any;
+    expect(arg.accountId).toEqual({ gen: 1, accountId: 'f' });
+    expect(arg.sentMailboxId).toBe('g-sent');
+    expect(arg.identityId).toBe('t');
+    expect(arg.fromEmail).toBe('team@x');
+    expect(arg.originalRecipient).toBe('team@x');
+    expect(arg.humanText).toContain('you sent to team@x.');
+    const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    expect(ids).toEqual(['m1']);
+    expect(keywords).toEqual({ $mdnsent: true });
+    expect(scope).toEqual({ gen: 1, accountId: 'f' });
+  });
+
+  it('submits the receipt from the main non-wildcard identity for mail a group catch-all received', async () => {
+    useSettingsStore.setState({
+      sendAccounts: { c: { name: 'Bob', identities: [bob] }, f: { name: 'Team', identities: [catchAll, team] } },
+    } as never);
+    getIdentities.mockResolvedValue([catchAll, team]);
+    await sendReceipt(aliasEmail);
+    const arg = vi.mocked(sendReadReceipt).mock.calls[0][0] as any;
+    expect(arg.accountId).toEqual({ gen: 1, accountId: 'f' });
+    expect(arg.identityId).toBe('t');
+    expect(arg.fromEmail).toBe('team@x');
+  });
+
+  it('submits the receipt from the own account for mail in your own account', async () => {
+    await sendReceipt(email, 'c');
     expect(resolveSendMailboxes).not.toHaveBeenCalled();
     const arg = vi.mocked(sendReadReceipt).mock.calls[0][0] as any;
     expect(arg.accountId.accountId).toBe('c');
     expect(arg.sentMailboxId).toBe('own-sent');
     expect(arg.identityId).toBe('b');
-    const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
+    expect(arg.fromEmail).toBe('bob@x');
+    const [ids, , scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
     expect(ids).toEqual(['m1']);
-    expect(keywords).toEqual({ $mdnsent: true });
-    expect(scope.accountId).toBe('f');
-    expect(scope.gen).toBe(arg.accountId.gen);
+    expect(scope.accountId).toBe('c');
+  });
+
+  it('is not offered for a share you cannot send from', () => {
+    const view = renderComponent(ReadReceiptBanner, {
+      email, requestedBy: 'news@x', jmapAccountId: 'h', appAccountId: 'app1', currentMailboxRole: 'inbox',
+      active: true, onHandled: vi.fn(),
+    });
+    expect(view.tree()).toBeNull();
   });
 });
 
 describe('ReadReceiptBanner in "always" mode on a shared-account message', () => {
-  it('submits the receipt automatically from the own account when only you received it', async () => {
+  it('submits the receipt automatically from the own account for mail in your own account', async () => {
     useSettingsStore.setState({ readReceiptResponse: 'always', ensureIdentities: vi.fn(async () => undefined) } as never);
     renderComponent(ReadReceiptBanner, {
-      email: { ...email, id: 'm-auto' } as Email, requestedBy: 'news@x', jmapAccountId: 'f', appAccountId: 'app1',
+      email: { ...email, id: 'm-auto' } as Email, requestedBy: 'news@x', jmapAccountId: undefined, appAccountId: 'app1',
       currentMailboxRole: 'inbox', active: true, onHandled: vi.fn(),
     }, { effects: true });
     await new Promise((r) => setTimeout(r, 0));
@@ -227,14 +298,13 @@ describe('ReadReceiptBanner in "always" mode on a shared-account message', () =>
     const [ids, keywords, scope] = vi.mocked(patchKeywordsForEmails).mock.calls[0] as any[];
     expect(ids).toEqual(['m-auto']);
     expect(keywords).toEqual({ $mdnsent: true });
-    expect(scope.accountId).toBe('f');
-    expect(scope.gen).toBe(arg.accountId.gen);
+    expect(scope.accountId).toBe('c');
   });
 
-  const autoSend = async (message: Email) => {
+  const autoSend = async (message: Email, jmapAccountId = 'f') => {
     useSettingsStore.setState({ readReceiptResponse: 'always', ensureIdentities: vi.fn(async () => undefined) } as never);
     renderComponent(ReadReceiptBanner, {
-      email: message, requestedBy: 'news@x', jmapAccountId: 'f', appAccountId: 'app1',
+      email: message, requestedBy: 'news@x', jmapAccountId, appAccountId: 'app1',
       currentMailboxRole: 'inbox', active: true, onHandled: vi.fn(),
     }, { effects: true });
     await new Promise((r) => setTimeout(r, 0));
@@ -259,5 +329,22 @@ describe('ReadReceiptBanner in "always" mode on a shared-account message', () =>
     expect(sendReadReceipt).not.toHaveBeenCalled();
     expect(Alert.alert).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith('Read receipt could not be sent', 'Connect to send from team@x.');
+  });
+
+  it('submits the receipt automatically from the group main identity when no group address received it', async () => {
+    await autoSend({ ...email, id: 'm-auto-main' } as Email);
+    const arg = vi.mocked(sendReadReceipt).mock.calls[0][0] as any;
+    expect(arg.automatic).toBe(true);
+    expect(arg.accountId).toEqual({ gen: 1, accountId: 'f' });
+    expect(arg.identityId).toBe('t');
+    expect(arg.fromEmail).toBe('team@x');
+  });
+
+  it('sends nothing automatically for a share you cannot send from', async () => {
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => undefined as never);
+    await autoSend({ ...email, id: 'm-auto-none' } as Email, 'h');
+    expect(sendReadReceipt).not.toHaveBeenCalled();
+    expect(patchKeywordsForEmails).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 });

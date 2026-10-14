@@ -6,47 +6,79 @@ const resolveSendMailboxes = vi.fn();
 vi.mock('../../api/identity', () => ({ getIdentities: (...a: unknown[]) => getIdentities(...a) }));
 vi.mock('../../api/sent-lookup', () => ({ resolveSendMailboxes: (...a: unknown[]) => resolveSendMailboxes(...a) }));
 
-import { verifyGroupSender, receivingSendIdentity } from '../group-sender';
+import { verifyGroupSender, messageAnswerer, mainSendIdentity } from '../group-sender';
 import { RoutedSendError } from '../routed-send';
-import type { SendIdentity } from '../send-identities';
+import type { Identity } from '../../api/types';
 
-const sid = (id: string, email: string, jmapAccountId: string, accountName = jmapAccountId): SendIdentity =>
-  ({ id, email, name: '', mayDelete: false, jmapAccountId, accountName });
+const ident = (id: string, email: string, mayDelete = false): Identity =>
+  ({ id, email, name: '', mayDelete }) as Identity;
 
-describe('receivingSendIdentity', () => {
-  const list = [
-    sid('me', 'bob@x', 'own', 'Bob'),
-    sid('f/t', 'team@x', 'f', 'Team'),
-    sid('f/s', 'sales@x', 'f', 'Team'),
-    sid('g/o', 'ops@x', 'g', 'Ops'),
-  ];
+describe('messageAnswerer', () => {
+  const sendAccounts = {
+    own: { name: 'Bob', identities: [ident('me', 'bob@x')] },
+    f: { name: 'Team', identities: [ident('t', 'team@x'), ident('s', 'sales@x')] },
+    g: { name: 'Ops', identities: [ident('o', 'ops@x')] },
+  };
+  const answer = (email: Parameters<typeof messageAnswerer>[0]['email'], at: string | undefined, accounts = sendAccounts) =>
+    messageAnswerer({ email, messageJmapAccountId: at, ownAccountId: 'own', sendAccounts: accounts });
+  const groupId = (r: ReturnType<typeof messageAnswerer>) => (r.kind === 'group' ? r.identity.id : r.kind);
 
   it('is the shared account identity the mail was addressed to (To, Cc or Bcc)', () => {
-    expect(receivingSendIdentity(list, { to: [{ email: 'team@x' }] }, 'f', 'own')?.id).toBe('f/t');
-    expect(receivingSendIdentity(list, { to: [{ email: 'a@y' }], cc: [{ email: 'Sales@X' }] }, 'f', 'own')?.id).toBe('f/s');
-    expect(receivingSendIdentity(list, { to: [{ email: 'a@y' }], bcc: [{ email: 'team@x' }] }, 'f', 'own')?.id).toBe('f/t');
+    expect(groupId(answer({ to: [{ email: 'team@x' }] }, 'f'))).toBe('f/t');
+    expect(groupId(answer({ to: [{ email: 'a@y' }], cc: [{ email: 'Sales@X' }] }, 'f'))).toBe('f/s');
+    expect(groupId(answer({ to: [{ email: 'a@y' }], bcc: [{ email: 'sales@x' }] }, 'f'))).toBe('f/s');
   });
 
   it('matches a tagged delivery to the untagged group identity', () => {
-    expect(receivingSendIdentity(list, { to: [{ email: 'team+news@x' }] }, 'f', 'own')?.id).toBe('f/t');
+    expect(groupId(answer({ to: [{ email: 'sales+news@x' }] }, 'f'))).toBe('f/s');
   });
 
-  it('never falls back to the first identity when no group address received it', () => {
-    expect(receivingSendIdentity(list, { to: [{ email: 'bob@x' }] }, 'f', 'own')).toBeUndefined();
-    expect(receivingSendIdentity(list, { to: [{ email: 'list@y' }] }, 'f', 'own')).toBeUndefined();
+  it('decorates the group identity with its account and routed id', () => {
+    const r = answer({ to: [{ email: 'team@x' }] }, 'f');
+    expect(r).toEqual({ kind: 'group', identity: { ...ident('f/t', 'team@x'), jmapAccountId: 'f', accountName: 'Team' } });
+  });
+
+  it('is the group main identity, never yours, when no group address received it', () => {
+    // A list copy in the group folder, or one addressed to you.
+    expect(groupId(answer({ to: [{ email: 'list@y' }] }, 'f'))).toBe('f/t');
+    expect(groupId(answer({ to: [{ email: 'bob@x' }] }, 'f'))).toBe('f/t');
+    expect(groupId(answer({}, 'f'))).toBe('f/t');
   });
 
   it('only looks in the message account: another group that received it is not used', () => {
-    expect(receivingSendIdentity(list, { to: [{ email: 'ops@x' }] }, 'f', 'own')).toBeUndefined();
+    expect(groupId(answer({ to: [{ email: 'ops@x' }] }, 'f'))).toBe('f/t');
   });
 
-  it('is undefined for mail in your own account, or when the account is unknown', () => {
-    expect(receivingSendIdentity(list, { to: [{ email: 'team@x' }] }, 'own', 'own')).toBeUndefined();
-    expect(receivingSendIdentity(list, { to: [{ email: 'team@x' }] }, undefined, 'own')).toBeUndefined();
+  it('answers mail a group catch-all received from the main non-wildcard identity', () => {
+    const accounts = { ...sendAccounts, f: { name: 'Team', identities: [ident('w', '*@x'), ident('t', 'team@x', true)] } };
+    expect(groupId(answer({ to: [{ email: 'alias@x' }] }, 'f', accounts))).toBe('f/t');
   });
 
-  it('is undefined with no recipients', () => {
-    expect(receivingSendIdentity(list, {}, 'f', 'own')).toBeUndefined();
+  it('is refused for a share with nothing to send from, naming the account', () => {
+    // Folder-only share: no sendAccounts entry; the session name or the id names it.
+    expect(answer({ to: [{ email: 'team@x' }] }, 'h')).toEqual({ kind: 'refused', account: 'h' });
+    const accounts = { ...sendAccounts, f: { name: 'Team', identities: [ident('w', '*@x')] } };
+    expect(answer({ to: [{ email: 'a@x' }] }, 'f', accounts)).toEqual({ kind: 'refused', account: 'Team' });
+    expect(answer({ to: [{ email: 'a@x' }] }, 'f', { ...sendAccounts, f: { name: 'Team', identities: [] } }))
+      .toEqual({ kind: 'refused', account: 'Team' });
+  });
+
+  it('is your own for mail in your own account', () => {
+    expect(answer({ to: [{ email: 'team@x' }] }, 'own')).toEqual({ kind: 'own' });
+    expect(answer({ to: [{ email: 'team@x' }] }, undefined)).toEqual({ kind: 'own' });
+  });
+
+  it('never takes mail in another account for yours while unconnected', () => {
+    const r = messageAnswerer({ email: { to: [{ email: 'team@x' }] }, messageJmapAccountId: 'f', ownAccountId: null, sendAccounts });
+    expect(groupId(r)).toBe('f/t');
+  });
+});
+
+describe('mainSendIdentity', () => {
+  it('is the first undeletable identity, else the first, skipping catch-alls', () => {
+    expect(mainSendIdentity([ident('a', 'a@x', true), ident('b', 'b@x')])?.id).toBe('b');
+    expect(mainSendIdentity([ident('w', '*@x'), ident('a', 'a@x', true), ident('b', 'b@x', true)])?.id).toBe('a');
+    expect(mainSendIdentity([ident('w', '*@x')])).toBeUndefined();
   });
 });
 
