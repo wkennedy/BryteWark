@@ -121,6 +121,8 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     if (group) {
       const route = routeOfIdentity(group);
       const at = inAccount(base, route.jmapAccountId);
+      // The delimiter is moot: the only address checked is the identity's
+      // own, which matches exactly.
       const { sentId } = await verifyGroupSender(at, route, [group.email], '+', group.accountName, group.email);
       submit = { at, identityId: route.identityId, sentMailboxId: sentId };
     } else {
