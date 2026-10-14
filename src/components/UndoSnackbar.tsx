@@ -9,6 +9,7 @@ import { useEmailStore } from '../stores/email-store';
 import { useSendUndoStore, restoreUndoneSend, type PendingUndoSend } from '../stores/send-undo-store';
 import { useLocaleStore } from '../stores/locale-store';
 import { useSettingsStore } from '../stores/settings-store';
+import { useAccountStore } from '../stores/account-store';
 import { jmapClient } from '../api/jmap-client';
 import { reopenUndoneSend } from '../lib/undo-reopen';
 import type { RootStackParamList } from '../navigation/types';
@@ -121,9 +122,12 @@ export function UndoSnackbar() {
     const ok = await useSendUndoStore.getState().undo();
     if (!ok) return;
     // Bring the message back as an editable draft and reopen the composer.
-    const own = jmapClient.connectedAccountId;
+    // Your own JMAP account id comes from the registry, which survives a
+    // disconnect (exactly when the reopen fails), else from the live client.
+    const own = (send.appAccountId && useAccountStore.getState().getAccountById(send.appAccountId)?.jmapAccountId)
+      || jmapClient.connectedAccountId;
     const group = !!send.accountId && !!own && send.accountId !== own;
-    await reopenUndoneSend(send, {
+    await reopenUndoneSend({
       restore: () => {
         const { mailboxes, activeAccountId } = useEmailStore.getState();
         return restoreUndoneSend(send, mailboxes, activeAccountId);
@@ -131,6 +135,7 @@ export function UndoSnackbar() {
       open: (draft) => navigation.navigate('Compose', { draft }),
       alert: (title, message) => Alert.alert(title, message),
       t,
+      group,
       accountName: group ? useSettingsStore.getState().sendAccounts[send.accountId!]?.name : undefined,
     });
   };

@@ -1346,7 +1346,8 @@
     "reopen_failed": "Sending was cancelled, but the message couldn't be reopened. It is still in {folder}.",
     "reopen_failed_title": "Could not reopen message",
     "sent_folder": "Sent",
-    "sent_folder_group": "{account}'s Sent"
+    "sent_folder_group": "{account}'s Sent",
+    "sent_folder_shared": "the shared account's Sent"
   },
   "unified_mailbox": {
     "accounts_failed": "{count, plural, one {# account could not be loaded} other {# accounts could not be loaded}}"
