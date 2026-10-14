@@ -16,8 +16,8 @@ Branch `parity/shared-send-followups`. It tightens shared-account sending: who a
 - An undone send that can't be reopened shows an alert naming the Sent folder it is still in, also for a group send while disconnected (c212a17, d7f2f7e).
 
 ### Improvements
-- A group identity can be the default sender: star it in Settings (d494ccf).
-- Unsubscribe mail and read receipts for mail a group received are sent from the group address and filed in the group's Sent. When that isn't possible, or offline, they are refused and never sent from your own address (7c72344).
+- A group identity can be the default sender: star it in Settings. Your own identity with the same address stays listed there to edit or delete, without a star (d494ccf, 942a163).
+- Mail in a shared account is never answered from your own address. Unsubscribe mail and read receipts go from the group address that received it, else from the group's main address (catch-alls skipped), and are filed in the group's Sent. When the group has no address to send from (a folder-only share, or catch-alls only), they are refused, and the read receipt isn't offered. When the group check fails, or offline, they are refused too. Mail in your own account is answered as before (7c72344, 00447d7).
 
 ## Shared-account sending (#22)
 

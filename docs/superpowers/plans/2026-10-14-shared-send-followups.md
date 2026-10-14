@@ -44,6 +44,7 @@
   - When the message sits in a shared account and one of that account's identities received it (To, Cc or Bcc), the unsubscribe mail or receipt is sent from that group identity, filed in the group's Sent, after the group-sender check.
   - Otherwise nothing changes: it is sent from your own identity, into your own Sent.
   - When the group check refuses, the send is refused with the `RoutedSendError` message. It does not fall back to your own identity, because that would reveal your address to the list.
+  - Amended after the final review (user decision): mail in a shared account is never answered from your own identity. It goes from that account's identity that received it, else its main identity (the first `!mayDelete` non-wildcard, else the first non-wildcard), through the group-sender check; with none (no send access, or catch-alls only) it is refused (`no_group_identity`) and the read receipt isn't offered. Mail in your own account is unchanged.
 - **P4, signature.**
   - A group identity without a signature uses the signature of its own account's primary identity (`!mayDelete`, else the first), or none.
   - It never uses yours.
