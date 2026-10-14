@@ -53,11 +53,10 @@ export function identitySendsAsOrSubaddress(
   const a = split(own);
   const b = split(target);
   if (!a || !b || !a.domain || a.domain !== b.domain) return false;
-  // The composer replaces an existing tag, so both are compared by their base.
-  const cut = b.local.indexOf(delimiter);
-  if (cut <= 0 || cut + delimiter.length >= b.local.length) return false;
-  const base = (local: string) => (local.includes(delimiter) ? local.slice(0, local.indexOf(delimiter)) : local);
-  return b.local.slice(0, cut) === base(a.local);
+  // The From must extend the identity's whole local part: comparing bases would let a
+  // neighbouring address through (`team-ops@` for a `team-sales@` group with `-`).
+  const cut = b.local.indexOf(delimiter, a.local.length);
+  return cut === a.local.length && b.local.startsWith(a.local) && cut + delimiter.length < b.local.length;
 }
 
 /**

@@ -92,6 +92,16 @@ describe('identitySendsAsOrSubaddress', () => {
     expect(identitySendsAsOrSubaddress({ email: 'team@x' }, 'team+a@b@x')).toBe(false);
   });
 
+  it('extends the identity\'s whole local part, never a neighbouring address', () => {
+    const sales = { email: 'team-sales@x.org' };
+    expect(identitySendsAsOrSubaddress(sales, 'team-ops@x.org', '-')).toBe(false);
+    expect(identitySendsAsOrSubaddress(sales, 'team-sales-ops@x.org', '-')).toBe(true);
+    expect(identitySendsAsOrSubaddress(sales, 'team@x.org', '-')).toBe(false);
+    const tagged = { email: 'team+x@x.org' };
+    expect(identitySendsAsOrSubaddress(tagged, 'team+y@x.org')).toBe(false);
+    expect(identitySendsAsOrSubaddress(tagged, 'team+x+y@x.org')).toBe(true);
+  });
+
   it('leaves a wildcard identity to the wildcard rules', () => {
     expect(identitySendsAsOrSubaddress({ email: '*@x' }, 'team+tag@x')).toBe(true);
     expect(identitySendsAsOrSubaddress({ email: '*@x' }, 'team+tag@y')).toBe(false);

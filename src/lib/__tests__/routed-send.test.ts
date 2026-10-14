@@ -123,6 +123,16 @@ describe('sendRouted', () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a neighbouring address when the group address holds the delimiter', async () => {
+    getIdentities.mockResolvedValue([{ id: 'b', email: 'team-sales@x' }]);
+    const p = params({
+      outgoing: { ...outgoing(), from: [{ email: 'team-ops@x' }], envelopeMailFrom: 'team-ops@x' },
+      subAddressDelimiter: '-',
+    });
+    expect((await refusal(p)).reason).toBe('from_override');
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   it('refuses a custom From that is not the group address', async () => {
     const p = params({
       outgoing: { ...outgoing(), from: [{ email: 'bob@x' }], envelopeMailFrom: 'bob@x', envelopeFallbackMailFrom: 'team@x' },
