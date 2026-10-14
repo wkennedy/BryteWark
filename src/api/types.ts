@@ -733,6 +733,7 @@ export const CAPABILITIES = {
   PRINCIPALS_AVAILABILITY: 'urn:ietf:params:jmap:principals:availability',
   EMAIL_PUSH: 'urn:ietf:params:jmap:emailpush',
   MAIL_SHARE: 'urn:ietf:params:jmap:mail:share',
+  BLOB: 'urn:ietf:params:jmap:blob',
 } as const;
 
 /** One busy period of a principal (Principal/getAvailability, RFC 9670 §4). */

@@ -35,6 +35,7 @@
 import { AuthenticationError, jmapClient } from '../api/jmap-client';
 import { destroyEmails, getEmailFlags, patchKeywordsForEmails, sendEmail } from '../api/email';
 import { getIdentities } from '../api/identity';
+import { identitySendsAs } from './send-identities';
 import type { Identity } from '../api/types';
 import {
   JMAPMethodError, RecipientsRejectedError, ScheduleTooLateError, SendRefusedError, type RejectedRecipient,
@@ -492,9 +493,9 @@ function identityMatches(entry: QueuedSend, identities: readonly Identity[]): bo
   const identity = identities.find((i) => i.id === entry.identityId);
   const own = normalizedAddress(identity?.email);
   if (!own) return false;
-  if (own.startsWith('*@')) return from.endsWith(own.slice(1));
+  if (own.startsWith('*@')) return identitySendsAs(identity!, from);
   return [from, entry.outgoing.envelopeMailFrom, entry.outgoing.envelopeFallbackMailFrom]
-    .some((address) => normalizedAddress(address) === own);
+    .some((address) => identitySendsAs(identity!, normalizedAddress(address)));
 }
 
 /** A JMAP account's identities read on a scope; rejects as getIdentities does. */

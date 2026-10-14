@@ -6,6 +6,7 @@ import {
   ScheduleTooLateError,
   formatRejectedRecipients,
 } from '../api/jmap-result';
+import { RoutedSendError } from './routed-send';
 
 /** The alert a failed send shows, shared by the composer and quick reply. */
 export function sendErrorAlert(
@@ -30,6 +31,46 @@ export function sendErrorAlert(
       title: t('email_composer.send_recipients_rejected', 'Not sent - the server rejected every recipient.'),
       message: formatRejectedRecipients(e.recipients),
     };
+  }
+  if (e instanceof RoutedSendError) {
+    const { address, account } = e;
+    const title = t('email_composer.send_failed', 'Send failed');
+    switch (e.reason) {
+      case 'offline':
+        return { title, message: t('email_composer.routed_offline', 'Connect to send from {address}.', { address, account }) };
+      case 'no_folders':
+        return {
+          title,
+          message: t(
+            'email_composer.routed_no_folders',
+            "{account} has no Sent or Drafts folder, so mail can't be sent from {address}.",
+            { address, account },
+          ),
+        };
+      case 'identity_gone':
+        return {
+          title,
+          message: t('email_composer.routed_identity_gone', 'You can no longer send from {address} in {account}.', { address, account }),
+        };
+      case 'from_override':
+        return {
+          title,
+          message: t(
+            'email_composer.routed_from_override',
+            "A custom From can't be used when sending from {account}.",
+            { address, account },
+          ),
+        };
+      case 'blob_copy':
+        return {
+          title,
+          message: t(
+            'email_composer.routed_blob_copy',
+            "The attachments couldn't be copied to {account}. Nothing was sent.",
+            { address, account },
+          ),
+        };
+    }
   }
   if (e instanceof RequestTimeoutError || e instanceof SendUnconfirmedError) {
     // The request may have reached the server; a blind retry would send the

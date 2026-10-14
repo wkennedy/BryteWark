@@ -38,6 +38,9 @@ import { useDateRegion } from '../../lib/use-date-region';
 import { ownMailboxes } from '../../lib/mailbox-tree';
 import { emailDisplayDate } from '../../lib/email-date';
 import { sendErrorAlert } from '../../lib/send-errors';
+import { buildSendIdentities } from '../../lib/send-identities';
+import { planComposerSend, ownAccountEmails, sendCapabilityAccountId } from '../../lib/composer-route';
+import { sendRouted } from '../../lib/routed-send';
 import { formatRejectedRecipients } from '../../api/jmap-result';
 import { buildQuoteHeader, quoteHeaderLabels } from '../../lib/quote-header';
 import { untrustedReplyAddresses } from '../../lib/sender-check';
@@ -71,6 +74,7 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
   const timeFormat = useSettingsStore((s) => s.timeFormat);
   const dateRegion = useDateRegion();
   const identities = useSettingsStore((s) => s.identities);
+  const sendAccounts = useSettingsStore((s) => s.sendAccounts);
   const sendDelaySeconds = useSettingsStore((s) => s.sendDelaySeconds);
   const signaturePosition = useSettingsStore((s) => s.signaturePosition);
   const signatureSeparatorEnabled = useSettingsStore((s) => s.signatureSeparatorEnabled);
@@ -141,25 +145,44 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
       toastAlreadyQueued();
       return;
     }
-    const ownEmails = identities.map((i) => i.email).filter(Boolean);
-    // The own identity the message was delivered to (or, for our own message,
+    // Your own account's identities, then each group's. The "you" addresses
+    // are your own account's only: a group address is not yours in a reply.
+    // `connectedAccountId`, not `accountId` (which throws before a connection):
+    // a box mounted before the connection came up can still queue offline.
+    // Unconnected, only your own identities are known: no group is routed.
+    const connectedId = jmapClient.connectedAccountId;
+    const ownAccountId = connectedId ?? '';
+    const accounts = connectedId && sendAccounts[connectedId]
+      ? sendAccounts
+      : { [ownAccountId]: { name: '', identities } };
+    const { list } = buildSendIdentities(ownAccountId, accounts);
+    const ownEmails = ownAccountEmails(accounts, ownAccountId);
+    // The identity the message was delivered to (or, for our own message,
     // the one that sent it). Never the catch-all From rewrite: this box has no
     // From row to show or correct it.
-    const resolved = resolveReplyIdentity(identities, {
+    const resolved = resolveReplyIdentity(list, {
       from, to: email.to ?? undefined, cc: email.cc ?? undefined, bcc: email.bcc ?? undefined,
     }, { ownEmails, catchAll: false });
-    const identity = identities.find((i) => i.id === resolved?.identityId) ?? identities[0];
+    const identity = list.find((i) => i.id === resolved?.identityId) ?? list[0];
     if (!identity) {
       Alert.alert(t('common.error', 'Error'), t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
       return;
     }
+    // A group identity sends from the group's account; the Outbox only
+    // replays from your own, so offline it is refused, never queued.
+    const plan = planComposerSend({ submission: identity, ownAccountId, online: useNetworkStore.getState().online });
+    if (plan.kind === 'refuse') {
+      const { title, message } = sendErrorAlert(plan.error, t);
+      Alert.alert(title, message);
+      return;
+    }
     // Sent/Drafts of the account the reply is submitted from: the user's own,
-    // even for a message in a shared account (a group account's folders and
-    // identities are not ours to send from).
+    // even for a message in a shared account. A routed send resolves the
+    // group's itself.
     const own = ownMailboxes(mailboxes);
     const sent = own.find((m) => m.role === 'sent');
     const drafts = own.find((m) => m.role === 'drafts');
-    if (!sent) {
+    if (plan.kind === 'own' && !sent) {
       Alert.alert(t('common.error', 'Error'), t('email_composer.no_sent_folder', 'No Sent folder found'));
       return;
     }
@@ -191,7 +214,7 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
         subject: buildReplySubject(email.subject, t('email_composer.prefix.reply', 'Re:')),
         // Signed as the composer signs a plain-text reply; an alias without a
         // signature of its own carries the primary identity's.
-        textBody: signPlainTextReply(body, `${header.text}${quoted}`, signatureIdentityFor(identity, identities), {
+        textBody: signPlainTextReply(body, `${header.text}${quoted}`, signatureIdentityFor(identity, list), {
           position: signaturePosition,
           separator: signatureSeparatorEnabled,
         }),
@@ -216,6 +239,12 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
           })
         : '';
       if (!useNetworkStore.getState().online) {
+        // Only your own identity is ever queued; a routed one is refused.
+        if (plan.kind !== 'own') {
+          const { title, message } = sendErrorAlert(new Error('offline'), t);
+          Alert.alert(title, message);
+          return;
+        }
         if (
           !hasQueueAccounts(ownerAppAccountId, queueAccountId)
           || !shouldQueueSend({ online: false, uploadsDone: attachmentsUploaded(outgoing) })
@@ -260,20 +289,25 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
       // owner's, checked active just above. Flagged after a switch, the
       // replied-to id would name the other account's message.
       const at = opScope();
-      const holdFor = jmapClient.undoSendHold(sendDelaySeconds, at.accountId);
-      const result = await sendEmail(
-        outgoing,
-        identity.id,
-        sent.originalId ?? sent.id,
-        holdFor,
-        { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: at },
-      );
+      const holdFor = jmapClient.undoSendHold(sendDelaySeconds, sendCapabilityAccountId(identity, at.accountId));
+      const result = plan.kind === 'routed'
+        ? await sendRouted({
+            outgoing, route: plan.route, accountName: plan.accountName, blobAccountId: at.accountId, holdForSeconds: holdFor, base: at,
+          })
+        : await sendEmail(
+            outgoing,
+            identity.id,
+            sent!.originalId ?? sent!.id,
+            holdFor,
+            { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: at },
+          );
       // Held for the undo-send delay: the undo bar offers Undo / Send now.
       // Recorded before the flag below so its round trip doesn't eat the window.
+      // A routed hold lives in the group's account, under its server id.
       useSendUndoStore.getState().recordHeldSend(result, holdFor, {
-        identityId: identity.id,
+        identityId: plan.kind === 'routed' ? plan.route.identityId : identity.id,
         appAccountId: ownerAppAccountId ?? undefined,
-        accountId: at.accountId,
+        accountId: plan.kind === 'routed' ? plan.route.jmapAccountId : at.accountId,
         from: [{ name: identity.name, email: identity.email }],
       });
       try {

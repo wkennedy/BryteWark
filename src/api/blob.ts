@@ -1,7 +1,9 @@
 import { File } from 'expo-file-system';
 import type * as LegacyFileSystemTypes from 'expo-file-system/legacy';
 import { jmapClient, StaleLoadError } from './jmap-client';
-import { opScope, type AccountRef } from './op-scope';
+import { opScope, type AccountRef, type OpScope } from './op-scope';
+import { JMAPMethodError, requireMethodResult } from './jmap-result';
+import { CAPABILITIES } from './types';
 import { getClientCertAlias, secureFetch } from '../lib/client-cert';
 import { observeServerFetch, reportServerResponse } from '../lib/server-reachability';
 
@@ -275,6 +277,52 @@ export async function uploadBytes(
 
   const raw = (await response.json()) as Record<string, unknown>;
   return parseUploadResponse(raw, targetAccountId, bytes.byteLength, type);
+}
+
+/** Blobs the server did not copy into the target account. */
+export class BlobCopyError extends Error {
+  constructor(public blobIds: string[]) {
+    super(`Could not copy ${blobIds.length} blob(s) between accounts`);
+    this.name = 'BlobCopyError';
+  }
+}
+
+/**
+ * RFC 8620 §6.3 Blob/copy from `fromAccountId` into `to.accountId`, on `to`'s
+ * connection. Returns old id -> new id. Blobs are account-scoped, so an
+ * attachment uploaded to your own account has to be copied before a message
+ * in the group account can reference it.
+ */
+export async function copyBlobs(
+  fromAccountId: string,
+  to: OpScope,
+  blobIds: string[],
+): Promise<Record<string, string>> {
+  const unique = [...new Set(blobIds)];
+  if (unique.length === 0) return {};
+  if (fromAccountId === to.accountId) return Object.fromEntries(unique.map((id) => [id, id]));
+  // Stalwart answers unknownMethod unless `using` names the blob capability
+  // (RFC 9404); a server that doesn't advertise it isn't sent it.
+  const using = jmapClient.hasCapability(CAPABILITIES.BLOB)
+    ? [CAPABILITIES.CORE, CAPABILITIES.BLOB]
+    : [CAPABILITIES.CORE];
+  const res = await jmapClient.request(
+    [['Blob/copy', { fromAccountId, accountId: to.accountId, blobIds: unique }, '0']],
+    using,
+    { gen: to.gen },
+  );
+  let body: { copied?: Record<string, string> | null };
+  try {
+    body = requireMethodResult<{ copied?: Record<string, string> | null }>(res, '0', 'Blob/copy');
+  } catch (e) {
+    // The server refused the call itself: nothing was copied.
+    if (e instanceof JMAPMethodError) throw new BlobCopyError(unique);
+    throw e;
+  }
+  const copied = body.copied ?? {};
+  const missing = unique.filter((id) => typeof copied[id] !== 'string');
+  if (missing.length > 0) throw new BlobCopyError(missing);
+  return Object.fromEntries(unique.map((id) => [id, copied[id]]));
 }
 
 export function getDownloadUrl(

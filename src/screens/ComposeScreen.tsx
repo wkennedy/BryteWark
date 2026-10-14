@@ -50,8 +50,7 @@ import { clientServesAccount, recordedJmapAccountId } from '../lib/active-client
 import { useSendUndoStore } from '../stores/send-undo-store';
 import { toast } from '../stores/toast-store';
 import { type EmailTemplate } from '../stores/templates-store';
-import { getIdentities } from '../api/identity';
-import { loadComposerIdentities } from '../lib/identity-cache';
+import { getSendIdentities } from '../api/identity';
 import {
   sendEmail, createDraft, destroyEmails, patchKeywordsForEmails, type OutgoingAttachment, type OutgoingEmail,
 } from '../api/email';
@@ -65,6 +64,11 @@ import { buildReplySubject, buildForwardSubject } from '../lib/subject-prefix';
 import { useNetworkStore } from '../stores/network-store';
 import { useSendQueueStore, SendTooLargeToQueueError, AlreadyQueuedError } from '../stores/send-queue-store';
 import { envelopeFallbackIdentity, overrideEnvelope, pickSubmissionIdentity } from '../lib/envelope-sender';
+import {
+  loadComposerSendIdentities, planComposerSend, reselectIdentityId, resolveIdentityAlias, sameAccountIdentities, sendCapabilityAccountId,
+  type ComposerIdentitySet,
+} from '../lib/composer-route';
+import { sendRouted } from '../lib/routed-send';
 import { attachmentsUploaded, buildQueuedSend, findAlreadyQueued, hasQueueAccounts, OutboxCheckError, shouldQueueSend } from '../lib/queue-send';
 import { generateUUID } from '../lib/uuid';
 import { computeReplyThreadingHeaders, generateMessageId, stripMessageIdBrackets } from '../lib/email-threading';
@@ -688,7 +692,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
     [mailboxes],
   );
 
-  const [identities, setIdentities] = React.useState<Identity[]>([]);
+  // Your own identities and every shared account's you can send from, ids
+  // routed (see buildSendIdentities).
+  const [identitySet, setIdentitySet] = React.useState<ComposerIdentitySet | null>(null);
+  const identities = React.useMemo(() => identitySet?.list ?? [], [identitySet]);
   const [identityError, setIdentityError] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
   const [selectedIdentityId, setSelectedIdentityId] = React.useState<string | null>(null);
@@ -731,9 +738,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
     for (const e of [ownerEntry?.email, ownerEntry?.username, jmapClient.username]) {
       if (e && e.includes('@')) out.add(e);
     }
-    for (const i of identities) if (i.email) out.add(i.email);
+    // Your own account's addresses only: a shared account's are not "you".
+    for (const e of identitySet?.ownEmails ?? []) out.add(e);
     return Array.from(out);
-  }, [identities]);
+  }, [identitySet]);
 
   const replySource = React.useMemo<ReplySource | undefined>(
     () => (replyTo
@@ -915,8 +923,6 @@ export default function ComposeScreen({ route, navigation }: Props) {
   // owner's sending account advertises the SMTP extension.
   const [requestDsn, setRequestDsn] = React.useState(!!draft?.requestDsn);
   const [requireTls, setRequireTls] = React.useState(!!draft?.requireTls);
-  const canRequestDsn = jmapClient.supportsSubmissionExtension('DSN', owner?.jmapAccountId);
-  const canRequireTls = jmapClient.supportsSubmissionExtension('REQUIRETLS', owner?.jmapAccountId);
   const [subAddressTag, setSubAddressTag] = React.useState('');
   const [fromOverride, setFromOverride] = React.useState<{ name: string; email: string } | null>(null);
   const [selState, setSelState] = React.useState<RichTextSelectionState>({
@@ -1104,22 +1110,27 @@ export default function ComposeScreen({ route, navigation }: Props) {
     if (owner && !ownerActiveNow()) return;
     let cancelled = false;
     void (async () => {
-      const result = await loadComposerIdentities(owner?.appAccountId, async () => {
-        // The live id while the client serves the owner: a stale recorded id
-        // would make every fresh fetch fail.
-        const fetchAccountId = owner ? queueJmapAccountId(owner, {
-          liveJmapAccountId: jmapClient.connectedAccountId,
-          clientServesOwner: clientServesAccount(owner.appAccountId),
-          recorded: recordedJmapAccountId,
-        }) : '';
-        const list = await getIdentities(fetchAccountId || undefined);
-        if (owner && !ownerActiveNow()) throw new Error('Account switched');
-        return list;
+      // The live id while the client serves the owner: a stale recorded id
+      // would make every fresh fetch fail.
+      const fetchAccountId = owner ? queueJmapAccountId(owner, {
+        liveJmapAccountId: jmapClient.connectedAccountId,
+        clientServesOwner: clientServesAccount(owner.appAccountId),
+        recorded: recordedJmapAccountId,
+      }) : '';
+      const result = await loadComposerSendIdentities({
+        appAccountId: owner?.appAccountId,
+        ownJmapAccountId: fetchAccountId || owner?.jmapAccountId || null,
+        fetchAccountId,
+        // Taken in the fetch: with no connection yet it throws, and the cache stands in.
+        scope: () => opScope(),
+        fetch: getSendIdentities,
+        stillOwner: () => !owner || ownerActiveNow(),
       });
       if (cancelled) return;
       if (result.source === 'fresh') setIdentitiesFresh(true);
-      // A failed retry keeps the cached list already shown.
-      if (result.source !== 'none') setIdentities(result.identities);
+      // A failed retry, or a cache whose own account is unknown, keeps the
+      // list already shown.
+      if (result.set) setIdentitySet(result.set);
       setIdentityError(result.error);
     })();
     return () => { cancelled = true; };
@@ -1245,6 +1256,12 @@ export default function ComposeScreen({ route, navigation }: Props) {
   // mailbox's owner when the user has an identity for it (webmail 129f545a).
   // Read once: it is the folder the message was started from. Own folders
   // resolve to nothing, so they keep the preferred identity below.
+  // A fresh list can hide the own identity chosen from the cached one behind
+  // a group's copy: the choice follows it rather than falling to the default.
+  React.useEffect(() => {
+    if (identitySet) setSelectedIdentityId((id) => reselectIdentityId(id, identitySet));
+  }, [identitySet]);
+
   const composeFromAccountEmail = React.useMemo(() => {
     const { mailboxes: all, currentMailboxId } = useEmailStore.getState();
     return resolveComposeAccountEmail(all, currentMailboxId);
@@ -1261,7 +1278,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
   React.useEffect(() => {
     if (selectedIdentityId || identities.length === 0) return;
     const activeEmail = ownerEntry?.email || jmapClient.username;
-    const preferredId = owner ? preferredIdentityIds[owner.jmapAccountId] : undefined;
+    // A preference naming a hidden duplicate follows it to the shared copy.
+    const preferredId = owner
+      ? resolveIdentityAlias(preferredIdentityIds[owner.jmapAccountId], identitySet?.aliases ?? {})
+      : null;
     const defaultIdentity =
       identities.find((i) => i.id === preferredId)
       ?? identities.find((i) => i.email.toLowerCase() === activeEmail?.toLowerCase())
@@ -1571,6 +1591,13 @@ export default function ComposeScreen({ route, navigation }: Props) {
 
   // ── Outgoing message assembly ─────────────────────────────────────────
 
+  // Only the chosen identity's own account can carry its send: ids collide
+  // across accounts, so an override never moves it to another account.
+  const submissionPool = React.useMemo(
+    () => (primaryIdentity ? sameAccountIdentities(identities, primaryIdentity) : identities),
+    [identities, primaryIdentity],
+  );
+
   const senderAddress = React.useCallback((identity: Identity): {
     from: EmailAddress; envelopeMailFrom?: string; envelopeFallbackMailFrom?: string;
   } => {
@@ -1580,27 +1607,32 @@ export default function ComposeScreen({ route, navigation }: Props) {
       const from = overrideName ? { name: overrideName, email: fromOverride.email.trim() } : { email: fromOverride.email.trim() };
       // The override is asked for as the envelope sender too, with the
       // identity's address once as the fallback (webmail #1009).
-      return { from, ...overrideEnvelope(identities, identity, fromOverride.email) };
+      return { from, ...overrideEnvelope(submissionPool, identity, fromOverride.email) };
     }
     const email = subAddressTag ? generateSubAddress(identity.email, subAddressTag, subAddressDelimiter) : identity.email;
     const from = name ? { name, email } : { email };
     // A sub-address still goes out through the identity's envelope sender.
     const envelopeMailFrom = email.toLowerCase() !== identity.email.toLowerCase() ? identity.email : undefined;
     return { from, envelopeMailFrom };
-  }, [fromOverride, subAddressTag, subAddressDelimiter, identities]);
+  }, [fromOverride, subAddressTag, subAddressDelimiter, submissionPool]);
 
   // The identity a send goes through: one that owns the override address
   // wins. Both the send and a queued row name it, so the Outbox can prove an
   // uncertain send by its submission.
   const submissionIdentity = React.useMemo(
-    () => (primaryIdentity ? pickSubmissionIdentity(identities, primaryIdentity, fromOverride?.email) : null),
-    [identities, primaryIdentity, fromOverride],
+    () => (primaryIdentity ? pickSubmissionIdentity(submissionPool, primaryIdentity, fromOverride?.email) : null),
+    [submissionPool, primaryIdentity, fromOverride],
   );
+  // Submission capabilities (DSN, REQUIRETLS, holds) are the sending
+  // account's: a group identity's account, else the owner's as before.
+  const sendCapAccountId = sendCapabilityAccountId(submissionIdentity ?? primaryIdentity, owner?.jmapAccountId);
+  const canRequestDsn = jmapClient.supportsSubmissionExtension('DSN', sendCapAccountId);
+  const canRequireTls = jmapClient.supportsSubmissionExtension('REQUIRETLS', sendCapAccountId);
   // The address a server refusing the override as envelope sender gets
   // instead, said under the From row before sending.
   const overrideFallbackAddress = React.useMemo(
-    () => (primaryIdentity ? envelopeFallbackIdentity(identities, primaryIdentity, fromOverride?.email) : null),
-    [identities, primaryIdentity, fromOverride],
+    () => (primaryIdentity ? envelopeFallbackIdentity(submissionPool, primaryIdentity, fromOverride?.email) : null),
+    [submissionPool, primaryIdentity, fromOverride],
   );
 
   const buildOutgoing = React.useCallback((identity: Identity, liveHtml: string, opts: { forDraft: boolean }): OutgoingEmail => {
@@ -2381,8 +2413,9 @@ export default function ComposeScreen({ route, navigation }: Props) {
     addChips('to', template.defaultRecipients?.to);
     addChips('cc', template.defaultRecipients?.cc);
     addChips('bcc', template.defaultRecipients?.bcc);
-    if (template.identityId && identities.some((i) => i.id === template.identityId)) {
-      setSelectedIdentityId(template.identityId);
+    const templateIdentityId = resolveIdentityAlias(template.identityId, identitySet?.aliases ?? {});
+    if (templateIdentityId && identities.some((i) => i.id === templateIdentityId)) {
+      setSelectedIdentityId(templateIdentityId);
     }
   };
 
@@ -2515,14 +2548,14 @@ export default function ComposeScreen({ route, navigation }: Props) {
       );
       return null;
     }
-    if (!jmapClient.hasDelayedSend(owner?.jmapAccountId)) {
+    if (!jmapClient.hasDelayedSend(sendCapAccountId)) {
       Alert.alert(
         t('email_composer.schedule_unsupported_title', 'Scheduling unavailable'),
         t('email_composer.schedule_unsupported_body', 'This mail server does not support scheduled send.'),
       );
       return null;
     }
-    const max = jmapClient.getMaxDelayedSend(owner?.jmapAccountId);
+    const max = jmapClient.getMaxDelayedSend(sendCapAccountId);
     if (max > 0 && seconds > max) {
       Alert.alert(
         t('email_composer.schedule_too_late_title', 'Too far ahead'),
@@ -2536,7 +2569,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
   // The Send button: applies the global undo-send delay when the server
   // supports it (capped at its hold limit), otherwise sends immediately.
   const onSend = () => {
-    const holdFor = jmapClient.undoSendHold(sendDelaySeconds, owner?.jmapAccountId);
+    const holdFor = jmapClient.undoSendHold(sendDelaySeconds, sendCapAccountId);
     void performSend(holdFor);
   };
 
@@ -2554,18 +2587,18 @@ export default function ComposeScreen({ route, navigation }: Props) {
     // On the clock of the app's time zone, which the labels show.
     const times = schedulePresetTimes(now, resolveTimeZone(dateRegion.timeZone));
     // Only offer times within the server's hold limit.
-    const maxMs = jmapClient.getMaxDelayedSend(owner?.jmapAccountId) * 1000;
+    const maxMs = jmapClient.getMaxDelayedSend(sendCapAccountId) * 1000;
     return [
       { label: t('email_composer.schedule_in_1h', 'In 1 hour'), date: times.in1h },
       { label: t('email_composer.schedule_in_3h', 'In 3 hours'), date: times.in3h },
       { label: t('email_composer.schedule_tomorrow_morning', 'Tomorrow morning'), date: times.tomorrowMorning },
     ].filter((preset) => preset.date.getTime() - now.getTime() <= maxMs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, scheduleSheetOpen, dateRegion.timeZone]);
+  }, [t, scheduleSheetOpen, dateRegion.timeZone, sendCapAccountId]);
 
   const startCustomPicker = () => {
     // An hour ahead, or the latest time the server can hold it if sooner.
-    const latest = jmapClient.latestHoldDate(owner?.jmapAccountId)?.getTime() ?? Infinity;
+    const latest = jmapClient.latestHoldDate(sendCapAccountId)?.getTime() ?? Infinity;
     customDraftRef.current = new Date(Math.min(Date.now() + 3600 * 1000, latest));
     setScheduleSheetOpen(false);
     setCustomStage(Platform.OS === 'ios' ? 'datetime' : 'date');
@@ -2676,10 +2709,22 @@ export default function ComposeScreen({ route, navigation }: Props) {
       alertAccountSwitched();
       return;
     }
+    // A group identity sends from the group's account; the Outbox only
+    // replays from your own, so offline it is refused, never queued.
+    const sendIdentity = submissionIdentity ?? primaryIdentity;
+    const isOnline = useNetworkStore.getState().online;
+    const plan = planComposerSend({
+      submission: sendIdentity, ownAccountId: identitySet?.ownAccountId ?? '', online: isOnline,
+    });
+    if (plan.kind === 'refuse') {
+      const { title, message } = sendErrorAlert(plan.error, t);
+      Alert.alert(title, message);
+      return;
+    }
     // Offline at the moment of sending, before any request: queue it. An
     // online send never takes this path, and a network error during one keeps
     // the "Send failed" alert below (never auto-queue after a request).
-    if (!useNetworkStore.getState().online) {
+    if (!isOnline) {
       // Read now, not at mount: the composer may have opened before the
       // connection came up.
       const queueAccountId = queueJmapAccountId(owner, {
@@ -2701,7 +2746,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
             id: generateUUID(),
             appAccountId: owner.appAccountId,
             jmapAccountId: queueAccountId,
-            identityId: (submissionIdentity ?? primaryIdentity).id,
+            identityId: sendIdentity.id,
             outgoing: queued,
             // Replay destroys it in the row's account: a draft still in a
             // shared account stays where it is.
@@ -2743,20 +2788,33 @@ export default function ComposeScreen({ route, navigation }: Props) {
     try {
       const outgoing = buildOutgoing(primaryIdentity, liveBodyHtml, { forDraft: false });
       // One connection for the send and the reply flag after it: the user's
-      // own account, as before; the flag goes to the original's account on it.
+      // own account, as before, or the group's for a group identity; the flag
+      // goes to the original's account on it.
       const at = opScope();
-      const result = await sendEmail(
-        outgoing,
-        (submissionIdentity ?? primaryIdentity).id,
-        sentMailbox.id,
-        holdForSeconds,
-        {
-          draftsMailboxId: draftsMailbox?.id,
-          draftId: draftIdRef.current ?? undefined,
-          draftAccountId: draftAccountRef.current ?? undefined,
-          accountId: at,
-        },
-      );
+      const result = plan.kind === 'routed'
+        ? await sendRouted({
+            outgoing,
+            route: plan.route,
+            accountName: plan.accountName,
+            blobAccountId: at.accountId,
+            holdForSeconds,
+            draftId: draftIdRef.current ?? undefined,
+            draftAccountId: draftAccountRef.current ?? undefined,
+            base: at,
+            subAddressDelimiter,
+          })
+        : await sendEmail(
+            outgoing,
+            sendIdentity.id,
+            sentMailbox.id,
+            holdForSeconds,
+            {
+              draftsMailboxId: draftsMailbox?.id,
+              draftId: draftIdRef.current ?? undefined,
+              draftAccountId: draftAccountRef.current ?? undefined,
+              accountId: at,
+            },
+          );
       draftIdRef.current = null;
       draftAccountRef.current = null;
       lastSavedRef.current = null;
@@ -2803,8 +2861,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
         );
       } else if (result.scheduled) {
         // Undo-send window: the undo bar offers Undo / Send now.
+        // A routed hold lives in the group's account, under its server id.
         useSendUndoStore.getState().recordHeldSend(result, holdForSeconds, {
-          identityId: (submissionIdentity ?? primaryIdentity).id,
+          identityId: plan.kind === 'routed' ? plan.route.identityId : sendIdentity.id,
+          ...(plan.kind === 'routed' ? { accountId: plan.route.jmapAccountId } : {}),
           appAccountId: owner?.appAccountId,
           from: outgoing.from,
           to: [...outgoing.to, ...(outgoing.cc ?? []), ...(outgoing.bcc ?? [])],
@@ -2951,7 +3011,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
             <Paperclip size={20} color={c.text} />
           </Pressable>
           {/* Only offer scheduling when the server can hold the message (webmail parity). */}
-          {jmapClient.hasDelayedSend(owner?.jmapAccountId) && (
+          {jmapClient.hasDelayedSend(sendCapAccountId) && (
             <Pressable
               onPress={() => setScheduleSheetOpen(true)}
               style={styles.headerBtn}
@@ -3362,7 +3422,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
                 mode="datetime"
                 display="spinner"
                 minimumDate={new Date()}
-                maximumDate={jmapClient.latestHoldDate(owner?.jmapAccountId)}
+                maximumDate={jmapClient.latestHoldDate(sendCapAccountId)}
                 onChange={onCustomPickerChange}
               />
               <View style={styles.modalActions}>
@@ -3390,7 +3450,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
           mode={customStage === 'time' ? 'time' : 'date'}
           display="default"
           minimumDate={customStage === 'date' ? new Date() : undefined}
-          maximumDate={customStage === 'date' ? jmapClient.latestHoldDate(owner?.jmapAccountId) : undefined}
+          maximumDate={customStage === 'date' ? jmapClient.latestHoldDate(sendCapAccountId) : undefined}
           onChange={onCustomPickerChange}
         />
       )}
@@ -3544,6 +3604,7 @@ export default function ComposeScreen({ route, navigation }: Props) {
         visible={identitySheetOpen}
         onClose={() => setIdentitySheetOpen(false)}
         identities={identities}
+        ownAccountId={identitySet?.ownAccountId ?? owner?.jmapAccountId}
         selectedIdentityId={selectedIdentityId}
         onPick={(identity) => { setSelectedIdentityId(identity.id); setFromOverride(null); }}
       />

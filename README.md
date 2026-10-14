@@ -16,13 +16,13 @@ React Native (Expo SDK 54) client for [Bulwark Webmail](https://github.com/bulwa
 
 ## What works today
 
-The app covers 486 of the 494 webmail features and fixes tracked in [PARITY_CHECKLIST.md](PARITY_CHECKLIST.md). What changed recently is in [CHANGES.md](CHANGES.md).
+The app covers 487 of the 494 webmail features and fixes tracked in [PARITY_CHECKLIST.md](PARITY_CHECKLIST.md). What changed recently is in [CHANGES.md](CHANGES.md).
 
 **Accounts and sign-in**
 - Sign in to any JMAP server (e.g. Stalwart) with a password, with two-factor (TOTP) codes, over OAuth/OIDC, with an access token, or with a sign-in code shown by the webmail
 - Internationalized domain names in server and account addresses
 - Up to 10 accounts: switch, reorder, set the default and remove any of them
-- Shared and group accounts: their folders in the mail list, and their filters, vacation reply, calendars and address books in Settings
+- Shared and group accounts: their folders in the mail list, sending as a group address from the group's own account, and their filters, vacation reply, calendars and address books in Settings
 - Signing out removes the account's offline mail, search history and calendar subscriptions from the device, and ends the identity provider's session when no other account uses it
 - Account security on Stalwart: change the password, turn two-factor sign-in on or off, app passwords, public keys and encryption at rest
 
@@ -112,7 +112,6 @@ The app covers 486 of the 494 webmail features and fixes tracked in [PARITY_CHEC
 **Not supported**
 - S/MIME: signed and encrypted messages are recognised and marked, but the app cannot verify, decrypt, sign or encrypt. The S/MIME settings tab is marked "Not implemented".
 - Plugins run in the webmail only; the app has no plugin system
-- Sending from shared or group accounts
 
 **Open parity items**
 - Settings, templates and tag definitions don't sync between devices or with the webmail (native #1). It needs a server-side settings store.

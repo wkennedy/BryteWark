@@ -11,6 +11,7 @@ import {
 } from '../api/email';
 import { jmapClient } from '../api/jmap-client';
 import { inAccount, opScope, type OpScope } from '../api/op-scope';
+import { resolveSendMailboxes } from '../api/sent-lookup';
 import { clientServesAccount } from '../lib/active-client-account';
 import type { EmailAddress, Mailbox } from '../api/types';
 import { draftContextFromEmail } from '../lib/draft-context';
@@ -161,8 +162,9 @@ export const useSendUndoStore = create<SendUndoState>((set, get) => ({
  * composer, in the account the send was submitted from: the user's own for
  * a reply, even a quick reply to shared mail; a shared account only for a
  * send from that account's identity. Webmail `cancelUndoSend`. `mailboxes` are
- * app account `mailboxesOf`'s folders (the email store's); refused unless
- * that is the account the message was sent from and the client serves it.
+ * app account `mailboxesOf`'s folders (the email store's), used for your own
+ * account; a shared account's are read from the server. Refused unless that
+ * is the account the message was sent from and the client serves it.
  */
 export async function restoreUndoneSend(
   entry: PendingUndoSend,
@@ -174,17 +176,21 @@ export async function restoreUndoneSend(
   const primary = opScope().accountId;
   const shared = !!entry.accountId && entry.accountId !== primary;
   const accountId = shared ? entry.accountId : undefined;
-  const scope = mailboxesOfAccount(mailboxes, accountId);
-  const drafts = scope.find((m) => m.role === 'drafts');
-  const sent = scope.find((m) => m.role === 'sent');
-  if (drafts) {
-    await restoreEmailToDraft(
-      entry.emailId,
-      drafts.originalId ?? drafts.id,
-      sent ? (sent.originalId ?? sent.id) : undefined,
-      at,
-    );
+  let draftsId: string | undefined;
+  let sentId: string | undefined;
+  if (shared) {
+    // A group's folders may not be loaded (a send from its identity needs no
+    // shared folder open), so they are read from that account: left in the
+    // group's Sent, the cancelled message would show to every member.
+    ({ draftsId, sentId } = await resolveSendMailboxes(at));
+  } else {
+    const scope = mailboxesOfAccount(mailboxes, accountId);
+    const drafts = scope.find((m) => m.role === 'drafts');
+    const sent = scope.find((m) => m.role === 'sent');
+    draftsId = drafts ? (drafts.originalId ?? drafts.id) : undefined;
+    sentId = sent ? (sent.originalId ?? sent.id) : undefined;
   }
+  if (draftsId) await restoreEmailToDraft(entry.emailId, draftsId, sentId, at);
   const draft = draftContextFromEmail(await getFullEmail(entry.emailId, at), accountId);
   return {
     ...draft,

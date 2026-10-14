@@ -2,7 +2,7 @@ import { jmapClient } from './jmap-client';
 import { assertSetResult, requireMethodResult } from './jmap-result';
 import { CAPABILITIES } from './types';
 import type { Identity, JMAPMethodCall } from './types';
-import type { AccountRef } from './op-scope';
+import { opScope, type AccountRef, type OpScope } from './op-scope';
 import { sanitizeDisplayName } from '../lib/rfc5322-mailbox';
 
 const USING = [CAPABILITIES.CORE, CAPABILITIES.SUBMISSION];
@@ -29,6 +29,42 @@ export async function getIdentities(account?: AccountRef): Promise<Identity[]> {
     : await jmapClient.request(calls, USING);
   const body = requireMethodResult<{ list?: Identity[] }>(res, '0', 'Identity/get');
   return body.list ?? [];
+}
+
+export interface AccountIdentities { name: string; identities: Identity[] }
+/** Keyed by JMAP account id; always holds the scope's own account. */
+export type SendableIdentities = Record<string, AccountIdentities>;
+
+/**
+ * The identities you can send from, per account: your own, plus those of
+ * every other session account advertising submission, in one request. A
+ * folder-only share advertises the capability but answers `forbidden`;
+ * capability is not permission, so an account whose read errors is left out.
+ */
+export async function getSendIdentities(at: OpScope = opScope()): Promise<SendableIdentities> {
+  const accounts = jmapClient.currentSession?.accounts ?? {};
+  const ids = [
+    at.accountId,
+    ...Object.keys(accounts).filter(
+      (id) => id !== at.accountId && accounts[id]?.accountCapabilities?.[CAPABILITIES.SUBMISSION] !== undefined,
+    ),
+  ];
+  const calls: JMAPMethodCall[] = ids.map((accountId, i) => ['Identity/get', { accountId }, String(i)]);
+  const res = await jmapClient.request(calls, USING, { gen: at.gen });
+  const result: SendableIdentities = {};
+  ids.forEach((id, i) => {
+    const callId = String(i);
+    if (i === 0) {
+      const body = requireMethodResult<{ list?: Identity[] }>(res, callId, 'Identity/get');
+      result[id] = { name: jmapClient.getAccountName(id) ?? id, identities: body.list ?? [] };
+      return;
+    }
+    const match = (res?.methodResponses ?? []).find((r) => r[2] === callId);
+    if (!match || match[0] !== 'Identity/get') return;
+    const list = (match[1] as { list?: Identity[] }).list ?? [];
+    result[id] = { name: jmapClient.getAccountName(id) ?? id, identities: list };
+  });
+  return result;
 }
 
 export async function createIdentity(
