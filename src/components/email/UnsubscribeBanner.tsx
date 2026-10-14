@@ -14,6 +14,12 @@ import { isValidUnsubscribeUrl, parseUnsubscribeMailto, unsubscribeConfirmDetail
 import type { ListHeaders } from '../../lib/email-headers';
 import { findReceivingIdentity } from '../../lib/email-headers';
 import { ownMailboxes } from '../../lib/mailbox-tree';
+import { messageAnswerer } from '../../lib/group-sender';
+import { routeOfIdentity } from '../../lib/send-identities';
+import { sendRouted, RoutedSendError } from '../../lib/routed-send';
+import { sendErrorAlert } from '../../lib/send-errors';
+import { jmapClient } from '../../api/jmap-client';
+import { useNetworkStore } from '../../stores/network-store';
 
 const DISMISSED_KEY = 'webmail:unsubscribe-dismissed:v1';
 const dismissed = new Set<string>();
@@ -42,6 +48,8 @@ interface Props {
   list: ListHeaders;
   /** Dedupe key for dismissals (bare Message-ID, else the JMAP id). */
   messageKey: string;
+  /** The JMAP account the message sits in (undefined: your own). */
+  jmapAccountId?: string;
   /**
    * The app account the message is shown in (the viewer's). Defaults to the
    * one shown when the banner mounted.
@@ -55,11 +63,12 @@ interface Props {
  * mailto: URL is sent through the account itself (handing it to the OS mail
  * app goes nowhere for most users). Dismissals are remembered per Message-ID.
  */
-export function UnsubscribeBanner({ email, list, messageKey, appAccountId }: Props) {
+export function UnsubscribeBanner({ email, list, messageKey, jmapAccountId, appAccountId }: Props) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
   const identities = useSettingsStore((s) => s.identities);
+  const sendAccounts = useSettingsStore((s) => s.sendAccounts);
   const mailboxes = useEmailStore((s) => s.mailboxes);
   const [mountedIn] = React.useState(() => useEmailStore.getState().activeAccountId);
   const ownerAppAccountId = appAccountId ?? mountedIn;
@@ -108,34 +117,61 @@ export function UnsubscribeBanner({ email, list, messageKey, appAccountId }: Pro
         }
       } else {
         if (!mailtoFields) throw new Error('invalid mailto');
-        // Never from another account's identity: refused once another is shown.
-        const at = requireShownAccountScope(ownerAppAccountId);
-        const identity = findReceivingIdentity(identities, email) ?? identities[0];
-        if (!identity) throw new Error(t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
-        // Sent/Drafts of the account the mail is submitted from: the user's own,
-        // even when the newsletter sits in a shared account.
-        const own = ownMailboxes(mailboxes);
-        const sent = own.find((m) => m.role === 'sent');
-        const drafts = own.find((m) => m.role === 'drafts');
-        if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
-        await sendEmail(
-          {
-            from: [{ name: identity.name, email: identity.email }],
-            to: [{ email: mailtoFields.to[0] }],
-            subject: mailtoFields.subject ?? '',
-            textBody: mailtoFields.body ?? '',
-          },
-          identity.id,
-          sent.originalId ?? sent.id,
-          undefined,
-          { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: at },
-        );
+        const unsubscribeMail = (from: { name?: string; email: string }) => ({
+          from: [from],
+          to: [{ email: mailtoFields.to[0] }],
+          subject: mailtoFields.subject ?? '',
+          textBody: mailtoFields.body ?? '',
+        });
+        // A newsletter in a shared account is answered from that account's
+        // identity, into its Sent; refused rather than sent from your own
+        // address, which would show it to the list. `connectedAccountId`, not
+        // `accountId` (which throws before a connection).
+        const ownAccountId = jmapClient.connectedAccountId;
+        const answerer = messageAnswerer({ email, messageJmapAccountId: jmapAccountId, ownAccountId, sendAccounts });
+        if (answerer.kind === 'refused') throw new RoutedSendError('no_group_identity', '', answerer.account);
+        if (answerer.kind === 'group') {
+          const group = answerer.identity;
+          // A group send never queues: offline it is refused.
+          if (!useNetworkStore.getState().online || !jmapClient.isConnected) {
+            throw new RoutedSendError('offline', group.email, group.accountName);
+          }
+          const base = requireShownAccountScope(ownerAppAccountId);
+          await sendRouted({
+            outgoing: unsubscribeMail({ name: group.name, email: group.email }),
+            route: routeOfIdentity(group),
+            accountName: group.accountName,
+            blobAccountId: base.accountId,
+            base,
+          });
+        } else {
+          // Never from another account's identity: refused once another is shown.
+          const at = requireShownAccountScope(ownerAppAccountId);
+          const identity = findReceivingIdentity(identities, email) ?? identities[0];
+          if (!identity) throw new Error(t('email_viewer.unsubscribe_banner.no_identity', 'No sending identity available'));
+          // Mail in your own account: your own Sent and Drafts.
+          const own = ownMailboxes(mailboxes);
+          const sent = own.find((m) => m.role === 'sent');
+          const drafts = own.find((m) => m.role === 'drafts');
+          if (!sent) throw new Error(t('email_composer.no_sent_folder', 'No Sent folder found'));
+          await sendEmail(
+            unsubscribeMail({ name: identity.name, email: identity.email }),
+            identity.id,
+            sent.originalId ?? sent.id,
+            undefined,
+            { draftsMailboxId: drafts ? (drafts.originalId ?? drafts.id) : undefined, accountId: at },
+          );
+        }
       }
       setState('done');
       setTimeout(dismiss, 3000);
     } catch (err) {
       console.warn('[unsubscribe] failed', err);
       setState('error');
+      if (err instanceof RoutedSendError) {
+        const { title, message } = sendErrorAlert(err, t);
+        Alert.alert(title, message);
+      }
     }
   };
 

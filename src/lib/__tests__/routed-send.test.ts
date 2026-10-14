@@ -123,6 +123,16 @@ describe('sendRouted', () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a neighbouring address when the group address holds the delimiter', async () => {
+    getIdentities.mockResolvedValue([{ id: 'b', email: 'team-sales@x' }]);
+    const p = params({
+      outgoing: { ...outgoing(), from: [{ email: 'team-ops@x' }], envelopeMailFrom: 'team-ops@x' },
+      subAddressDelimiter: '-',
+    });
+    expect((await refusal(p)).reason).toBe('from_override');
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   it('refuses a custom From that is not the group address', async () => {
     const p = params({
       outgoing: { ...outgoing(), from: [{ email: 'bob@x' }], envelopeMailFrom: 'bob@x', envelopeFallbackMailFrom: 'team@x' },
@@ -162,5 +172,7 @@ describe('sendErrorAlert for a routed refusal', () => {
       .toBe("The attachments couldn't be copied to Team. Nothing was sent.");
     expect(sendErrorAlert(new RoutedSendError('from_override', 'bob@x', 'Team'), ti).message)
       .toBe("A custom From can't be used when sending from Team.");
+    expect(sendErrorAlert(new RoutedSendError('no_group_identity', '', 'Team'), ti).message)
+      .toBe("You can't send from Team, so this can't be done here.");
   });
 });

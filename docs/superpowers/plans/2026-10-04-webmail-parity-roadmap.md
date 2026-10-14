@@ -872,7 +872,8 @@ Plan: `docs/superpowers/plans/2026-10-13-shared-account-sending.md`. Decisions: 
 
 ### Left open
 - **Offline queueing for group identities (D5-A).** Offline, a group send is refused, not queued. Queueing needs queue row schema 3, an identity check at replay, and an `identity_unavailable` hold (which also fixes the hotfix's wrong hold label).
-- **Default sender.** IdentitySettings' default-sender chooser lists only your own identities. An old team@ default still works, because your own team@ identity is an alias of the group's.
-- **Unsubscribe and read receipts** always send from your own account, even for mail in a group's folders.
-- **Hidden own duplicate.** When the group offers the same address as one of your own identities, only the group's is listed. Your own copy can be reached only by removing the group identity.
+- **Hidden own duplicate.** When the group offers the same address as one of your own identities, only the group's is listed in the From sheet. Your own copy can be sent from only by removing the group identity. Settings still lists it to edit or delete (942a163).
 - **Custom From with a group identity.** A custom From override can't be used with a group identity: the send is refused, since the server doesn't check the From against the identity. A sub-address of the group address (team+tag@) still works (2fb5826).
+- **Group address containing the sub-address separator.** It can't take the composer's tag: the send is refused as a custom From.
+
+Closed by the follow-ups (amended P3): mail in a shared account is never answered from your own identity. Unsubscribe mail and read receipts go from the group identity that received it, else the group's main identity (first undeletable, catch-alls skipped), after the group-sender check. A share with no identity to send from (folder-only, or catch-alls only) refuses them, and the read receipt isn't offered (00447d7).

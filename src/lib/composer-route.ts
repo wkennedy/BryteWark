@@ -5,6 +5,7 @@ import type { SendableIdentities } from '../api/identity';
 import { inAccount, type OpScope } from '../api/op-scope';
 import { loadComposerIdentities, type ComposerIdentities } from './identity-cache';
 import { RoutedSendError } from './routed-send';
+import { signatureIdentityFor } from './signature-utils';
 import { buildSendIdentities, routeOfIdentity, type SendIdentity } from './send-identities';
 
 /** The id a saved preference or template names, after the hidden-duplicate alias. */
@@ -14,12 +15,44 @@ export function resolveIdentityAlias(id: string | null | undefined, aliases: Rec
 }
 
 /**
+ * The identity a new message starts from: the preferred one (an alias already
+ * followed), else the one matching the active account's address, else the
+ * undeletable primary, else the first. A preference naming an identity not in
+ * the list (stale, or a group identity no longer sendable) falls through.
+ */
+export function pickDefaultIdentityId(
+  list: SendIdentity[],
+  aliases: Record<string, string>,
+  preferredId: string | null | undefined,
+  activeEmail: string | null | undefined,
+): string | undefined {
+  const preferred = resolveIdentityAlias(preferredId, aliases);
+  return (
+    list.find((i) => i.id === preferred)
+    ?? list.find((i) => i.email.toLowerCase() === activeEmail?.toLowerCase())
+    ?? list.find((i) => !i.mayDelete)
+    ?? list[0]
+  )?.id;
+}
+
+/**
  * Identities eligible as the submission identity: only the chosen identity's
  * own account. Ids collide across accounts, so an override must never move a
  * send to an identity in another account.
  */
 export function sameAccountIdentities(list: SendIdentity[], chosen: SendIdentity): SendIdentity[] {
   return list.filter((i) => i.jmapAccountId === chosen.jmapAccountId);
+}
+
+/**
+ * The identity whose signature `identity` carries when it has none: its own
+ * account's primary, never another account's (so a group alias never borrows yours).
+ */
+export function signatureIdentityForSend(
+  identity: SendIdentity | null | undefined,
+  list: SendIdentity[],
+): SendIdentity | null {
+  return signatureIdentityFor(identity, identity ? sameAccountIdentities(list, identity) : []);
 }
 
 export type ComposerSendPlan =

@@ -131,6 +131,17 @@ describe('identity cache', () => {
     expect(ids(await readIdentityCache(A, OWN), OWN)).toEqual(['i1', 'i2']);
   });
 
+  it('keeps your own account first by size even when account ids are numeric', async () => {
+    const huge = 'x'.repeat(200_000);
+    await writeIdentityCache(A, {
+      '2': { name: 'Team', identities: [ident('s1', { htmlSignature: huge })] },
+      '9': { name: 'Me', identities: [ident('o1', { htmlSignature: huge })] },
+    }, '9');
+    const back = await readIdentityCache(A, '9');
+    expect(ids(back, '9')).toEqual(['o1']);
+    expect(ids(back, '2')).toEqual([]);
+  });
+
   it('migrates a v1 list as the own account', async () => {
     await AsyncStorage.setItem(legacyKey(A), JSON.stringify([ident('bob')]));
     const back = await readIdentityCache(A, 'd');

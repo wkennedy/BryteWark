@@ -65,13 +65,20 @@ function ownFirst(ids: string[], own: string | null | undefined): string[] {
   return own && ids.includes(own) ? [own, ...ids.filter((id) => id !== own)] : ids;
 }
 
-function boundCount(accounts: SendableIdentities, own: string | null | undefined): SendableIdentities {
-  const out: SendableIdentities = {};
+/**
+ * The count-bounded accounts as ordered pairs, own first: an object would put
+ * integer-like account ids first whatever the order they were added in.
+ */
+function boundCount(
+  accounts: SendableIdentities,
+  own: string | null | undefined,
+): Array<[string, AccountIdentities]> {
+  const out: Array<[string, AccountIdentities]> = [];
   let left = MAX_CACHED_IDENTITIES;
   for (const id of ownFirst(Object.keys(accounts), own)) {
     const kept = accounts[id].identities.slice(0, left);
     left -= kept.length;
-    out[id] = { name: accounts[id].name, identities: kept };
+    out.push([id, { name: accounts[id].name, identities: kept }]);
   }
   return out;
 }
@@ -93,7 +100,7 @@ export async function readIdentityCache(
         if (!Array.isArray(e.identities)) continue;
         accounts[id] = { name: typeof e.name === 'string' ? e.name : '', identities: cleanIdentities(e.identities) };
       }
-      return boundCount(accounts, ownJmapAccountId);
+      return Object.fromEntries(boundCount(accounts, ownJmapAccountId));
     }
     // No v2 row: an old list is this login's own account's. Without its id we
     // cannot say whose it is, so it is ignored.
@@ -102,10 +109,10 @@ export async function readIdentityCache(
     if (!legacy) return {};
     const parsed: unknown = JSON.parse(legacy);
     if (!Array.isArray(parsed)) return {};
-    return boundCount(
+    return Object.fromEntries(boundCount(
       { [ownJmapAccountId]: { name: ownJmapAccountId, identities: cleanIdentities(parsed) } },
       ownJmapAccountId,
-    );
+    ));
   } catch {
     return {};
   }
@@ -127,7 +134,7 @@ export async function writeIdentityCache(
   }
   const kept: SendableIdentities = {};
   let size = 2; // the surrounding braces
-  for (const [id, entry] of Object.entries(boundCount(clean, ownJmapAccountId))) {
+  for (const [id, entry] of boundCount(clean, ownJmapAccountId)) {
     const fitted: AccountIdentities = { name: entry.name, identities: [] };
     // The account's own entry: key, name and the array brackets.
     let accountSize = JSON.stringify({ [id]: fitted }).length - 2 + (Object.keys(kept).length > 0 ? 1 : 0);

@@ -335,6 +335,7 @@
     "routed_from_override": "A custom From can't be used when sending from {account}.",
     "routed_identity_gone": "You can no longer send from {address} in {account}.",
     "routed_no_folders": "{account} has no Sent or Drafts folder, so mail can't be sent from {address}.",
+    "routed_no_group_identity": "You can't send from {account}, so this can't be done here.",
     "routed_offline": "Connect to send from {address}.",
     "save_draft": "Save Draft",
     "save_failed_no_drafts": "There is no Drafts folder to save this draft to.",
@@ -1341,6 +1342,13 @@
     "remove_account_title": "Remove account?",
     "show_unread": "Show unread",
     "tab_unavailable": "{name} (unavailable)"
+  },
+  "undo_send": {
+    "reopen_failed": "Sending was cancelled, but the message couldn't be reopened. It is still in {folder}.",
+    "reopen_failed_title": "Could not reopen message",
+    "sent_folder": "Sent",
+    "sent_folder_group": "{account}'s Sent",
+    "sent_folder_shared": "the shared account's Sent"
   },
   "unified_mailbox": {
     "accounts_failed": "{count, plural, one {# account could not be loaded} other {# accounts could not be loaded}}"
