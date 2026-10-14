@@ -47,7 +47,7 @@ vi.mock('../jmap-client', () => ({
     assertAccountInSession: vi.fn(),
     authHeaderFor: () => 'Basic dXNlcjpwYXNz', isCurrent: () => true,
     request: vi.fn(),
-    hasCapability: vi.fn(() => false),
+    hasAccountCapability: vi.fn(() => false),
   },
 }));
 
@@ -243,6 +243,9 @@ describe('upload reachability', () => {
 
 describe('copyBlobs', () => {
   const to = { accountId: 'f', gen: 7 };
+  beforeEach(() => {
+    vi.mocked(jmapClient.hasAccountCapability).mockReset().mockReturnValue(false);
+  });
   const reply = (body: Record<string, unknown>) =>
     vi.mocked(jmapClient.request).mockResolvedValueOnce({ methodResponses: [['Blob/copy', body, '0']] } as never);
 
@@ -256,11 +259,25 @@ describe('copyBlobs', () => {
     );
   });
 
-  it('names the blob capability when the session advertises it (Stalwart requires it)', async () => {
-    vi.mocked(jmapClient.hasCapability).mockImplementationOnce((urn) => urn === CAPABILITIES.BLOB);
+  it('names the blob capability when only the target account advertises it (Stalwart requires it)', async () => {
+    vi.mocked(jmapClient.hasAccountCapability).mockImplementation((urn, id) => urn === CAPABILITIES.BLOB && id === 'f');
     reply({ copied: { x: 'X' } });
     await copyBlobs('d', to, ['x']);
     expect(vi.mocked(jmapClient.request).mock.calls[0][1]).toEqual([CAPABILITIES.CORE, CAPABILITIES.BLOB]);
+  });
+
+  it('names the blob capability when only the source account advertises it', async () => {
+    vi.mocked(jmapClient.hasAccountCapability).mockImplementation((urn, id) => urn === CAPABILITIES.BLOB && id === 'd');
+    reply({ copied: { x: 'X' } });
+    await copyBlobs('d', to, ['x']);
+    expect(vi.mocked(jmapClient.request).mock.calls[0][1]).toEqual([CAPABILITIES.CORE, CAPABILITIES.BLOB]);
+  });
+
+  it('does not name the blob capability when neither the session nor either account advertises it', async () => {
+    vi.mocked(jmapClient.hasAccountCapability).mockReturnValue(false);
+    reply({ copied: { x: 'X' } });
+    await copyBlobs('d', to, ['x']);
+    expect(vi.mocked(jmapClient.request).mock.calls[0][1]).toEqual([CAPABILITIES.CORE]);
   });
 
   it('turns a refused call into BlobCopyError for every requested blob', async () => {

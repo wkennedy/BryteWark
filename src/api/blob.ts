@@ -302,8 +302,10 @@ export async function copyBlobs(
   if (unique.length === 0) return {};
   if (fromAccountId === to.accountId) return Object.fromEntries(unique.map((id) => [id, id]));
   // Stalwart answers unknownMethod unless `using` names the blob capability
-  // (RFC 9404); a server that doesn't advertise it isn't sent it.
-  const using = jmapClient.hasCapability(CAPABILITIES.BLOB)
+  // (RFC 9404); a server that doesn't advertise it isn't sent it. Stalwart
+  // lists it under the account, so either account's advertisement counts.
+  const using = jmapClient.hasAccountCapability(CAPABILITIES.BLOB, to.accountId)
+    || jmapClient.hasAccountCapability(CAPABILITIES.BLOB, fromAccountId)
     ? [CAPABILITIES.CORE, CAPABILITIES.BLOB]
     : [CAPABILITIES.CORE];
   const res = await jmapClient.request(
