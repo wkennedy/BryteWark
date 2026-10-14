@@ -1,19 +1,9 @@
 import { copyBlobs, BlobCopyError } from '../api/blob';
-import { getIdentities } from '../api/identity';
-import { resolveSendMailboxes } from '../api/sent-lookup';
 import { sendEmail, type OutgoingEmail, type SendEmailResult } from '../api/email';
 import { inAccount, type OpScope } from '../api/op-scope';
-import { identitySendsAsOrSubaddress } from './send-identities';
+import { RoutedSendError, verifyGroupSender, type RoutedSendReason } from './group-sender';
 
-export type RoutedSendReason = 'offline' | 'no_folders' | 'identity_gone' | 'from_override' | 'blob_copy';
-
-/** A send from a shared account's identity that was refused before anything reached the server. */
-export class RoutedSendError extends Error {
-  constructor(public reason: RoutedSendReason, public address: string, public account: string) {
-    super(`Routed send refused (${reason}) for ${address} in ${account}`);
-    this.name = 'RoutedSendError';
-  }
-}
+export { RoutedSendError, type RoutedSendReason } from './group-sender';
 
 export interface RoutedSendParams {
   outgoing: OutgoingEmail;
@@ -44,23 +34,16 @@ export async function sendRouted(p: RoutedSendParams): Promise<SendEmailResult &
   const address = outgoing.from[0]?.email ?? '';
   const refuse = (reason: RoutedSendReason) => new RoutedSendError(reason, address, p.accountName);
 
-  const { sentId, draftsId } = await resolveSendMailboxes(at);
-  if (!sentId || !draftsId) throw refuse('no_folders');
-
-  const identity = (await getIdentities(at)).find((i) => i.id === route.identityId);
-  if (!identity) throw refuse('identity_gone');
   // The header From and both envelope senders: the identity's address or a
-  // sub-address of it. Anything else is a custom From, which is never sent
-  // from a group (an id could also name another address there).
-  const covers = (a: string | undefined) => !a || identitySendsAsOrSubaddress(identity, a, p.subAddressDelimiter);
-  if (
-    !address ||
-    !covers(address) ||
-    !covers(outgoing.envelopeMailFrom) ||
-    !covers(outgoing.envelopeFallbackMailFrom)
-  ) {
-    throw refuse('from_override');
-  }
+  // sub-address of it.
+  const { sentId, draftsId } = await verifyGroupSender(
+    at,
+    route,
+    [address, outgoing.envelopeMailFrom, outgoing.envelopeFallbackMailFrom],
+    p.subAddressDelimiter ?? '+',
+    p.accountName,
+    address,
+  );
 
   let copy = outgoing;
   const attachments = outgoing.attachments ?? [];
