@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, Easing, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,6 +8,9 @@ import { useColors } from '../theme/colors';
 import { useEmailStore } from '../stores/email-store';
 import { useSendUndoStore, restoreUndoneSend, type PendingUndoSend } from '../stores/send-undo-store';
 import { useLocaleStore } from '../stores/locale-store';
+import { useSettingsStore } from '../stores/settings-store';
+import { jmapClient } from '../api/jmap-client';
+import { reopenUndoneSend } from '../lib/undo-reopen';
 import type { RootStackParamList } from '../navigation/types';
 
 const VISIBLE_MS = 5000;
@@ -118,13 +121,18 @@ export function UndoSnackbar() {
     const ok = await useSendUndoStore.getState().undo();
     if (!ok) return;
     // Bring the message back as an editable draft and reopen the composer.
-    try {
-      const { mailboxes, activeAccountId } = useEmailStore.getState();
-      const draft = await restoreUndoneSend(send, mailboxes, activeAccountId);
-      navigation.navigate('Compose', { draft });
-    } catch (err) {
-      console.warn('[send-undo] reopen failed', err);
-    }
+    const own = jmapClient.connectedAccountId;
+    const group = !!send.accountId && !!own && send.accountId !== own;
+    await reopenUndoneSend(send, {
+      restore: () => {
+        const { mailboxes, activeAccountId } = useEmailStore.getState();
+        return restoreUndoneSend(send, mailboxes, activeAccountId);
+      },
+      open: (draft) => navigation.navigate('Compose', { draft }),
+      alert: (title, message) => Alert.alert(title, message),
+      t,
+      accountName: group ? useSettingsStore.getState().sendAccounts[send.accountId!]?.name : undefined,
+    });
   };
 
   const onSendNow = () => {
