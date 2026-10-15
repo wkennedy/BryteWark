@@ -13,7 +13,11 @@ import { Platform } from 'react-native';
  * the App Store. The whole updater surface (banner, settings pane, launch-time
  * check) is hidden when this is false.
  */
-export const supportsSideloadUpdates = Platform.OS === 'android';
+// Off until this fork publishes its own signed releases: an APK from any other
+// key can't install over it. Flip to true to bring the updater back.
+const SIDELOAD_UPDATES_ENABLED = false;
+
+export const supportsSideloadUpdates = SIDELOAD_UPDATES_ENABLED && Platform.OS === 'android';
 
 /**
  * Device sync: address books and calendars in Android's Contacts and Calendar

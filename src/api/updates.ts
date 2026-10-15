@@ -1,4 +1,4 @@
-export const UPDATE_REPO = 'bulwarkmail/native';
+export const UPDATE_REPO = 'wkennedy/BryteWark';
 
 export interface ReleaseAsset {
   name: string;
