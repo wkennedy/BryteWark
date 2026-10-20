@@ -27,6 +27,7 @@ import { ownMailboxes } from '../lib/mailbox-tree';
 import { draftContextFromEmail } from '../lib/draft-context';
 import { formatQuoteDate } from '../lib/quote-header';
 import { useDateRegion } from '../lib/use-date-region';
+import { useLatestRef } from '../lib/use-latest-ref';
 import { resolveTimeZone } from '../lib/time-zone';
 import { schedulePresetTimes, withPickedDayIn, withPickedTimeIn } from '../lib/schedule-times';
 import { spacing, typography, componentSizes, radius, type ThemePalette } from '../theme/tokens';
@@ -70,6 +71,8 @@ export default function ScheduledScreen({ navigation }: Props) {
   // repeat in other accounts, so an action runs only on a scope taken for it.
   const itemsOfRef = React.useRef<string | null>(null);
 
+  // A language switch must not reload the list.
+  const tRef = useLatestRef(t);
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -84,11 +87,12 @@ export default function ScheduledScreen({ navigation }: Props) {
       itemsOfRef.current = servedAtStart && isShownAccount(of) ? of : null;
       setItems(list);
     } catch (e) {
+      const t = tRef.current;
       setError(e instanceof Error ? e.message : t('email_list.error', 'Error'));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [tRef]);
 
   React.useEffect(() => {
     void load();

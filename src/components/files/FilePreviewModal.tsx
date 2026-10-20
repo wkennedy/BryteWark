@@ -9,6 +9,7 @@ import {
   exceedsPreviewLimit, inAppPreviewKind, type FilePreviewOptions,
 } from '../../lib/file-preview';
 import { useLocaleStore } from '../../stores/locale-store';
+import { useLatestRef } from '../../lib/use-latest-ref';
 import { AttachmentPreviewModal, type PreviewItem } from '../email/AttachmentPreviewModal';
 import { emlPreviewFromBytes } from '../email/use-body-override';
 
@@ -44,6 +45,8 @@ export function FilePreviewModal({ file, onClose }: Props) {
   const busy = React.useRef(false);
   const onCloseRef = React.useRef(onClose);
   onCloseRef.current = onClose;
+  // A language switch must not download the preview again.
+  const tRef = useLatestRef(t);
 
   const blobId = file?.blobId ?? null;
   const accountId = file?.accountId;
@@ -61,6 +64,7 @@ export function FilePreviewModal({ file, onClose }: Props) {
       const kind = inAppPreviewKind({ name, type, size }, PREVIEW_OPTIONS);
       // The node may not report a size; the download does.
       if (kind === 'none' || exceedsPreviewLimit(kind, local.size)) {
+        const t = tRef.current;
         return {
           kind: 'none',
           name,
@@ -90,6 +94,7 @@ export function FilePreviewModal({ file, onClose }: Props) {
         if (!cancelled) setItem(next);
       } catch (e) {
         if (cancelled) return;
+        const t = tRef.current;
         Alert.alert(t('files.preview_error', 'Failed to load preview'), e instanceof Error ? e.message : String(e));
         onCloseRef.current();
       } finally {
@@ -105,7 +110,7 @@ export function FilePreviewModal({ file, onClose }: Props) {
       setItem(null);
       setLoading(false);
     };
-  }, [blobId, accountId, name, type, size, t]);
+  }, [blobId, accountId, name, type, size, tRef]);
 
   const act = (run: (local: File) => Promise<void>, handsOff: boolean, failTitle: string) => {
     const open = session.current;

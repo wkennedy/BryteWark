@@ -1,4 +1,5 @@
 import { signOutWithGuard } from './src/lib/sign-out-guard';
+import { clearNavState, rememberNavState, restoredNavState } from './src/lib/nav-state-cache';
 import React from 'react';
 import { ActivityIndicator, AppState, Linking, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -119,6 +120,8 @@ syncFontScale();
 // Read the settings now, beside the stores that hydrate on import, so the start
 // folder is known by the time the session restores.
 void useSettingsStore.getState().hydrate();
+// The language too: App renders nothing with text until it is read.
+void useLocaleStore.getState().hydrate();
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -450,12 +453,40 @@ function MainTabsNavigator({ navigation }: NativeStackScreenProps<RootStackParam
   );
 }
 
+// A system font-size change recreates the activity and remounts the container
+// with no state; this reads the remembered state once per mount, so the user
+// stays on the screen they were on.
+function RestoringNavigationContainer({ theme, children }: {
+  theme: React.ComponentProps<typeof NavigationContainer>['theme'];
+  children: React.ReactNode;
+}) {
+  // The persisted registry knows the account at once; the auth store's id is
+  // null until restoreSession finishes its network round-trip.
+  const accountId = useAccountStore((s) => s.activeAccountId);
+  const [initialState] = React.useState(() => restoredNavState(accountId));
+  return (
+    <NavigationContainer
+      ref={navigationRef}
+      theme={theme}
+      initialState={initialState}
+      onStateChange={(state) => rememberNavState(accountId, state)}
+    >
+      {children}
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   const hasRestoredSession = useAuthStore((state) => state.hasRestoredSession);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const client = useAuthStore((state) => state.client);
+  // A signed-out or expired session must not bring its screen back.
+  React.useEffect(() => {
+    if (!isAuthenticated) clearNavState();
+  }, [isAuthenticated]);
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const t = useLocaleStore((state) => state.t);
+  const localeHydrated = useLocaleStore((s) => s.hydrated);
 
   // Resolve the user's theme preference to a concrete light/dark style for the
   // system status bar. The rest of the app's colors are still hard-coded dark
@@ -1047,6 +1078,16 @@ export default function App() {
     };
   }, [client, isAuthenticated, haveLiveSession, activeAccountId]);
 
+  // No language is known yet, so nothing is written.
+  if (!localeHydrated) {
+    return (
+      <>
+        <StatusBar style={statusBarStyle} />
+        <View style={{ flex: 1, backgroundColor: background }} />
+      </>
+    );
+  }
+
   // Skip the "Restoring session" flash for returning users: if we already
   // have a persisted active account, render the main UI immediately with
   // whatever the email-store hydrated from cache. restoreSession still runs
@@ -1070,7 +1111,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+    <RestoringNavigationContainer theme={navigationTheme}>
       <StatusBar style={statusBarStyle} />
       {/* On Fabric, native-stack keeps the screen right below the top live and
           freezes the ones further down. */}
@@ -1116,7 +1157,7 @@ export default function App() {
           )}
         </Stack.Screen>
       </Stack.Navigator>
-    </NavigationContainer>
+    </RestoringNavigationContainer>
   );
 }
 

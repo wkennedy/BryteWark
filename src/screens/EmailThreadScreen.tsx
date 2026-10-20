@@ -38,6 +38,7 @@ import {
 import { shareEmailEml } from '../lib/email-export';
 import { useKeywordsStore, keywordToken, type KeywordDef } from '../stores/keywords-store';
 import { useSheetDrag } from '../lib/use-sheet-drag';
+import { useLatestRef } from '../lib/use-latest-ref';
 import { useLocaleStore } from '../stores/locale-store';
 import {
   findArchiveMailbox, findTrashMailbox, mailboxAccountId, mailboxesOfAccount, mailboxOfEmail,
@@ -77,6 +78,8 @@ function EmailViewer({ route, navigation }: Props) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const { t } = useLocaleStore();
+  // A language switch must not refetch the message or mark it read again.
+  const tRef = useLatestRef(t);
   // The JMAP account the message lives in, as the screen that opened it named
   // it (undefined = the user's own). Never the open folder's: that may be
   // another account holding a different message under the same id (B3).
@@ -436,6 +439,7 @@ function EmailViewer({ route, navigation }: Props) {
       const fetched = await ensureDetail(activeEmailId);
       if (cancelled) return;
       if (!fetched) {
+        const t = tRef.current;
         if (!detailOf(activeEmailId)) setError(t('email_viewer.load_failed', 'Failed to load email'));
         return;
       }
@@ -445,7 +449,7 @@ function EmailViewer({ route, navigation }: Props) {
       cancelled = true;
       cancelRead?.();
     };
-  }, [activeEmailId, ensureDetail, scheduleMarkRead, detailOf, t]);
+  }, [activeEmailId, ensureDetail, scheduleMarkRead, detailOf, tRef]);
 
   const starred = !!email?.keywords?.$flagged;
   const unread = !!email && !email.keywords?.$seen;

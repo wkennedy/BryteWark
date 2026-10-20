@@ -14,7 +14,12 @@ import {
   type EventDayIndex,
   type TimeFormat,
 } from '../../lib/calendar-utils';
-import type { CalendarFocus, DayRange } from '../../lib/calendar-scroll-window';
+import {
+  PENDING_SCROLL_FALLBACK_MS,
+  windowGrewAtTop,
+  type CalendarFocus,
+  type DayRange,
+} from '../../lib/calendar-scroll-window';
 import {
   dayIndexIn,
   monthChipRowHeight,
@@ -41,8 +46,6 @@ type WeekStart = 0 | 1 | 6;
 const VISIBLE_ROWS = 6;
 /** Navigation closer than this many rows scrolls smoothly; further jumps. */
 const SMOOTH_SCROLL_ROWS = 12;
-/** Longest a navigation waits for rows added above to be laid out. */
-const PENDING_SCROLL_FALLBACK_MS = 300;
 
 interface MonthScrollViewProps {
   /** The day the user navigated to; its month's first week is scrolled to the top. */
@@ -222,7 +225,7 @@ function MonthScrollViewInner({
     if (pendingScrollRef.current !== null) clearTimeout(pendingScrollRef.current);
   }, []);
   React.useEffect(() => {
-    const grewAtTop = window.start.getTime() < windowStartRef.current;
+    const grewAtTop = windowGrewAtTop(windowStartRef.current, window.start.getTime());
     windowStartRef.current = window.start.getTime();
     if (handledNonceRef.current === focus.nonce) return;
     handledNonceRef.current = focus.nonce;
