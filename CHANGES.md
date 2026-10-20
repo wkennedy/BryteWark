@@ -1,10 +1,34 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups on `parity/shared-send-followups`, which are not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups on `fix/follow-up-minors`, which are not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Shared-account sending follow-ups (unmerged)
+## Smaller follow-up minors (unmerged)
+
+Branch `fix/follow-up-minors`. Three of the minors the #24 review deferred.
+
+### Fixes
+- A language switch doesn't re-run the read receipt's automatic send. It still runs again when the message, the identity, the send accounts, the folders or the requester change, so an "always" receipt on a message opened from a notification is still sent once the account connects (13b63c2, ae49507).
+
+### Tests and cleanup
+- A test checks that a restored navigation state leaves the composer out (b469747).
+- The month and week views share one hook for their deferred jump scroll (36a1585).
+
+## Smaller follow-ups (#24)
+
+Branch `fix/smaller-follow-ups`. It closes the language, week view, icon and font-size items left open by Device checks 2 and 3. Plan: `docs/superpowers/plans/2026-10-20-smaller-follow-ups.md`.
+
+### Fixes
+- The app starts in your chosen language: it waits for the saved language (at most a second) before drawing anything, so the Inbox header no longer stays in English after a restart in Arabic (161b5ff, 26e92be).
+- Changing the language in Settings redraws every screen at once. Before, about 90 components kept the old language until something else redrew them (4340852).
+- A language switch doesn't fetch a message again, reopen a file, re-run a pending folder or file link, or reload Scheduled; those effects read the language when they run (50fc6fe).
+- In the week view, a jump that also adds weeks above waits for them to be laid out before scrolling, as the month view does (0fd5e8e).
+- Send and sign-out icons mirror in right-to-left layouts (baaa9f1).
+- Drafts and Trash use the same icons in the drawer and folder settings (89b2bb9).
+- Changing the system font size keeps the screen you were on, except an open composer (its draft is already saved). The saved screen is only restored for the same account (f044120, 26e92be).
+
+## Shared-account sending follow-ups (#23)
 
 Branch `parity/shared-send-followups`. It tightens shared-account sending: who a group's tagged address may be, which address sends unsubscribe mail and read receipts, and what a group identity signs with.
 

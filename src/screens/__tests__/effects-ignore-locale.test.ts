@@ -19,6 +19,7 @@ const GUARDED: Array<[string, string]> = [
   ['src/screens/EmailListScreen.tsx', 'planMailFolderOpen('],
   ['src/screens/ScheduledScreen.tsx', 'void load();'],
   ['src/components/files/FilePreviewModal.tsx', 'cachePreviewFile('],
+  ['src/components/email/ReadReceiptBanner.tsx', 'autoAttempted.add(key)'],
 ];
 
 const HOOK = /^(React\.)?(useEffect|useLayoutEffect|useCallback|useMemo)$/;
