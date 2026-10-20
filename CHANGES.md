@@ -1,8 +1,19 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups on `fix/follow-up-minors`, which are not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
+
+## Smaller follow-up minors (unmerged)
+
+Branch `fix/follow-up-minors`. Three of the minors the #24 review deferred.
+
+### Fixes
+- A language switch doesn't re-run the read receipt's automatic send. It still runs again when the message, the identity, the send accounts, the folders or the requester change, so an "always" receipt on a message opened from a notification is still sent once the account connects (13b63c2, ae49507).
+
+### Tests and cleanup
+- A test checks that a restored navigation state leaves the composer out (b469747).
+- The month and week views share one hook for their deferred jump scroll (36a1585).
 
 ## Smaller follow-ups (#24)
 
