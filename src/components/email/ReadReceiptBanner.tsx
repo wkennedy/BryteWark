@@ -17,6 +17,7 @@ import { messageAnswerer, verifyGroupSender, RoutedSendError } from '../../lib/g
 import { routeOfIdentity } from '../../lib/send-identities';
 import { sendErrorAlert } from '../../lib/send-errors';
 import { useNetworkStore } from '../../stores/network-store';
+import { useLatestRef } from '../../lib/use-latest-ref';
 
 interface Props {
   email: Email;
@@ -152,8 +153,15 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     await flagSent(inAccount(base, jmapAccountId));
   }, [identity, email, sendAccounts, mailboxes, requestedBy, jmapAccountId, ownerAppAccountId, t, flagSent]);
 
+  // Read through refs: `send` and `failureMessage` are rebuilt on a language
+  // switch, which must not re-run the auto-send.
+  const tRef = useLatestRef(t);
+  const sendRef = useLatestRef(send);
+  const failureMessageRef = useLatestRef(failureMessage);
+
   // "always" mode: auto-send once when the message is actually displayed.
   React.useEffect(() => {
+    const t = tRef.current;
     if (readReceiptResponse !== 'always' || !shouldOffer || !active || !isShownAccount(ownerAppAccountId)) return;
     // Not `accountId`: a message opened from a notification can render before
     // the client connects. Without an account there is nothing to send yet.
@@ -163,12 +171,12 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     if (autoAttempted.has(key)) return;
     autoAttempted.add(key);
     setHandledLocally(true);
-    send(true).catch((err) => {
+    sendRef.current(true).catch((err) => {
       console.warn('[mdn] auto-send failed', err);
       // Not retried, so say so rather than fail silently (webmail parity).
-      toast.error(t('email_viewer.read_receipt.send_failed', 'Read receipt could not be sent'), failureMessage(err));
+      toast.error(t('email_viewer.read_receipt.send_failed', 'Read receipt could not be sent'), failureMessageRef.current(err));
     });
-  }, [readReceiptResponse, shouldOffer, active, ownerAppAccountId, jmapAccountId, email.id, send, t, failureMessage]);
+  }, [readReceiptResponse, shouldOffer, active, ownerAppAccountId, jmapAccountId, email.id, tRef, sendRef, failureMessageRef]);
 
   if (!shouldOffer || readReceiptResponse === 'always') return null;
 
