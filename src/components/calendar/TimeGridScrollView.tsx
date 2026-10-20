@@ -32,7 +32,12 @@ import {
   type EventDayIndex,
   type TimedEventLayout,
 } from '../../lib/calendar-utils';
-import type { CalendarFocus, DayRange } from '../../lib/calendar-scroll-window';
+import {
+  PENDING_SCROLL_FALLBACK_MS,
+  windowGrewAtTop,
+  type CalendarFocus,
+  type DayRange,
+} from '../../lib/calendar-scroll-window';
 import { displayNow, displayNowMinutes } from '../../lib/calendar-timezone';
 import { useSettingsStore } from '../../stores/settings-store';
 import {
@@ -334,16 +339,43 @@ function TimeGridScrollViewBody({
   // grid mounts there already, so its own nonce needs nothing.
   const listRef = React.useRef<FlatList<Date>>(null);
   const handledNonceRef = React.useRef(focus.nonce);
-  React.useEffect(() => {
-    if (handledNonceRef.current === focus.nonce) return;
-    handledNonceRef.current = focus.nonce;
+  const scrollToFocusRef = React.useRef(() => {});
+  scrollToFocusRef.current = () => {
     const target = focusColumn(focus.date);
     const current = columnOf(firstDayRef.current);
     listRef.current?.scrollToIndex({
       index: target,
       animated: Math.abs(target - current) <= perScreen * 2,
     });
-  }, [focus, window, mode, weekStartsOn, days.length, perScreen]);
+  };
+  // Days added at the start in the same update move the list natively and
+  // cancel a scroll under way, so the scroll waits for them to be laid out
+  // (see MonthScrollView).
+  const windowStartRef = React.useRef(window.start.getTime());
+  const pendingScrollRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushPendingScroll = React.useCallback(() => {
+    if (pendingScrollRef.current === null) return;
+    clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
+    requestAnimationFrame(() => scrollToFocusRef.current());
+  }, []);
+  React.useEffect(() => () => {
+    if (pendingScrollRef.current !== null) clearTimeout(pendingScrollRef.current);
+  }, []);
+  React.useEffect(() => {
+    const grewAtTop = windowGrewAtTop(windowStartRef.current, window.start.getTime());
+    windowStartRef.current = window.start.getTime();
+    if (handledNonceRef.current === focus.nonce) return;
+    handledNonceRef.current = focus.nonce;
+    if (pendingScrollRef.current !== null) clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
+    if (!grewAtTop) {
+      scrollToFocusRef.current();
+      return;
+    }
+    // Should the content size not report, scroll anyway.
+    pendingScrollRef.current = setTimeout(flushPendingScroll, PENDING_SCROLL_FALLBACK_MS);
+  }, [focus, window, mode, weekStartsOn, days.length, perScreen, flushPendingScroll]);
 
   // The now-line and "today" follow a clock in the calendar's time zone.
   const [nowMinutes, setNowMinutes] = React.useState(displayNowMinutes);
@@ -545,6 +577,7 @@ function TimeGridScrollViewBody({
               onEndReached={onExtendEnd}
               onEndReachedThreshold={threshold}
               onScroll={handleScroll}
+              onContentSizeChange={flushPendingScroll}
               scrollEventThrottle={16}
               snapToInterval={colWidth}
               decelerationRate="fast"

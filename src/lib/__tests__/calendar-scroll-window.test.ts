@@ -10,6 +10,7 @@ import {
   scrollWindowContains,
   scrollWindowLoadRange,
   windowStateForJump,
+  windowGrewAtTop,
   SCROLL_WINDOW_MAX,
   SCROLL_WINDOW_STEP,
   type ScrollWindowOptions,
@@ -323,4 +324,10 @@ describe('loadedPartOfWindow', () => {
       loadedPartOfWindow(window, new Date(2025, 0, 1).toISOString(), new Date(2025, 1, 1).toISOString()),
     ).toBeNull();
   });
+});
+
+describe('windowGrewAtTop', () => {
+  it('is true when the window starts earlier', () => { expect(windowGrewAtTop(1000, 500)).toBe(true); });
+  it('is false when the start is unchanged', () => { expect(windowGrewAtTop(1000, 1000)).toBe(false); });
+  it('is false when the window grew at the bottom or moved later', () => { expect(windowGrewAtTop(1000, 1500)).toBe(false); });
 });

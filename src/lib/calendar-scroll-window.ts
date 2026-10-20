@@ -67,6 +67,14 @@ export const SCROLL_WINDOW_MAX: Record<ScrollViewMode, number> = {
  */
 export const JUMP_ROOM_ROWS = { month: 4, week: 1 } as const;
 
+/** Longest a navigation waits for rows added above to be laid out. */
+export const PENDING_SCROLL_FALLBACK_MS = 300;
+
+/** Whether the window now starts earlier (its start times, in ms). */
+export function windowGrewAtTop(previousStart: number, nextStart: number): boolean {
+  return nextStart < previousStart;
+}
+
 /** Days loaded after the base range before the user scrolls anywhere. */
 const INITIAL_AFTER: Record<ScrollViewMode, number> = {
   month: SCROLL_WINDOW_STEP,
