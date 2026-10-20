@@ -17,6 +17,10 @@ export const LOCALE_READ_DEADLINE_MS = 1000;
 
 const TIMED_OUT = Symbol('locale-read-timed-out');
 
+// App calls hydrate at module load and again on mount; the second call must
+// share the first read (and its deadline) instead of starting its own.
+let inflight: Promise<void> | null = null;
+
 export type TranslateFn = (key: string, fallback?: string, params?: MessageParams) => string;
 
 interface LocaleState {
@@ -66,35 +70,42 @@ export const useLocaleStore = create<LocaleState>((set, get) => ({
   hydrated: false,
   directionChangePending: false,
 
-  hydrate: async () => {
-    if (get().hydrated) return;
-    try {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-        timer = setTimeout(() => resolve(TIMED_OUT), LOCALE_READ_DEADLINE_MS);
-      });
-      const raw = await Promise.race([AsyncStorage.getItem(STORAGE_KEY), deadline]).finally(() =>
-        clearTimeout(timer),
-      );
-      if (raw === TIMED_OUT) {
-        // The late read is dropped; the stored override applies from the next launch.
+  hydrate: () => {
+    if (get().hydrated) return Promise.resolve();
+    inflight ??= (async () => {
+      try {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+          timer = setTimeout(() => resolve(TIMED_OUT), LOCALE_READ_DEADLINE_MS);
+        });
+        const raw = await Promise.race([AsyncStorage.getItem(STORAGE_KEY), deadline]).finally(() =>
+          clearTimeout(timer),
+        );
+        if (raw === TIMED_OUT) {
+          // The late read is dropped; the stored override applies from the next launch.
+          // No applyLayoutDirection here: it would flip the next launch's layout, so a
+          // timed-out launch can show device-language text in last launch's direction.
+          set({ hydrated: true });
+          return;
+        }
+        const stored = raw ? (JSON.parse(raw).override as string | null) : null;
+        const override = stored && isSupportedLocale(stored) ? stored : null;
+        const locale = override ?? detectDeviceLocale();
+        const directionChangePending = applyLayoutDirection(locale);
+        set({
+          override,
+          locale,
+          hydrated: true,
+          directionChangePending,
+          ...(locale !== get().locale && { t: tFor(locale) }),
+        });
+      } catch {
         set({ hydrated: true });
-        return;
       }
-      const stored = raw ? (JSON.parse(raw).override as string | null) : null;
-      const override = stored && isSupportedLocale(stored) ? stored : null;
-      const locale = override ?? detectDeviceLocale();
-      const directionChangePending = applyLayoutDirection(locale);
-      set({
-        override,
-        locale,
-        hydrated: true,
-        directionChangePending,
-        ...(locale !== get().locale && { t: tFor(locale) }),
-      });
-    } catch {
-      set({ hydrated: true });
-    }
+    })().finally(() => {
+      inflight = null;
+    });
+    return inflight;
   },
 
   setOverride: (override) => {

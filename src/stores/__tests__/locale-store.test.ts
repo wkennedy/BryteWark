@@ -79,11 +79,23 @@ describe('locale store', () => {
     let resolve!: (v: string) => void;
     storage.getItem.mockReturnValue(new Promise((r) => { resolve = r; }));
     const done = useLocaleStore.getState().hydrate();
+    const second = useLocaleStore.getState().hydrate();
     await vi.advanceTimersByTimeAsync(LOCALE_READ_DEADLINE_MS);
-    await done;
-    useLocaleStore.getState().setOverride('fr');
+    await Promise.all([done, second]);
     resolve(JSON.stringify({ override: 'ar' }));
     await vi.runAllTimersAsync();
-    expect(useLocaleStore.getState().locale).toBe('fr');
+    expect(storage.getItem).toHaveBeenCalledTimes(1);
+    expect(useLocaleStore.getState()).toMatchObject({ locale: 'en', override: null, hydrated: true });
+  });
+
+  it('two concurrent hydrate calls read storage once', async () => {
+    let resolve!: (v: string) => void;
+    storage.getItem.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const first = useLocaleStore.getState().hydrate();
+    const second = useLocaleStore.getState().hydrate();
+    resolve(JSON.stringify({ override: 'ar' }));
+    await Promise.all([first, second]);
+    expect(storage.getItem).toHaveBeenCalledTimes(1);
+    expect(useLocaleStore.getState()).toMatchObject({ hydrated: true, locale: 'ar', override: 'ar' });
   });
 });

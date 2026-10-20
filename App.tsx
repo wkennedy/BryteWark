@@ -456,11 +456,13 @@ function MainTabsNavigator({ navigation }: NativeStackScreenProps<RootStackParam
 // A system font-size change recreates the activity and remounts the container
 // with no state; this reads the remembered state once per mount, so the user
 // stays on the screen they were on.
-function RestoringNavigationContainer({ accountId, theme, children }: {
-  accountId: string | null;
+function RestoringNavigationContainer({ theme, children }: {
   theme: React.ComponentProps<typeof NavigationContainer>['theme'];
   children: React.ReactNode;
 }) {
+  // The persisted registry knows the account at once; the auth store's id is
+  // null until restoreSession finishes its network round-trip.
+  const accountId = useAccountStore((s) => s.activeAccountId);
   const [initialState] = React.useState(() => restoredNavState(accountId));
   return (
     <NavigationContainer
@@ -1109,7 +1111,7 @@ export default function App() {
   }
 
   return (
-    <RestoringNavigationContainer accountId={activeAccountId} theme={navigationTheme}>
+    <RestoringNavigationContainer theme={navigationTheme}>
       <StatusBar style={statusBarStyle} />
       {/* On Fabric, native-stack keeps the screen right below the top live and
           freezes the ones further down. */}
