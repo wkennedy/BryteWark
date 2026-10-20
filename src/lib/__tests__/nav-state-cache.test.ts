@@ -21,6 +21,12 @@ describe('nav-state-cache', () => {
     clearNavState();
     expect(restoredNavState('acc1')).toBeUndefined();
   });
+  it('restores without Compose', () => {
+    rememberNavState('acc1', root([{ key: 'a', name: 'MainTabs' }, { key: 'c', name: 'Compose' }], 1));
+    const out = restoredNavState('acc1');
+    expect(out?.routes.map((r) => r.name)).toEqual(['MainTabs']);
+    expect(out?.index).toBe(0);
+  });
   it('drops a top-level Compose and fixes the index', () => {
     const out = withoutRoute(root([{ key: 'a', name: 'MainTabs' }, { key: 'c', name: 'Compose' }], 1), 'Compose');
     expect(out?.routes.map((r) => r.name)).toEqual(['MainTabs']);
