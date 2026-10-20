@@ -1,4 +1,5 @@
 import { signOutWithGuard } from './src/lib/sign-out-guard';
+import { clearNavState, rememberNavState, restoredNavState } from './src/lib/nav-state-cache';
 import React from 'react';
 import { ActivityIndicator, AppState, Linking, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -452,10 +453,35 @@ function MainTabsNavigator({ navigation }: NativeStackScreenProps<RootStackParam
   );
 }
 
+// A system font-size change recreates the activity and remounts the container
+// with no state; this reads the remembered state once per mount, so the user
+// stays on the screen they were on.
+function RestoringNavigationContainer({ accountId, theme, children }: {
+  accountId: string | null;
+  theme: React.ComponentProps<typeof NavigationContainer>['theme'];
+  children: React.ReactNode;
+}) {
+  const [initialState] = React.useState(() => restoredNavState(accountId));
+  return (
+    <NavigationContainer
+      ref={navigationRef}
+      theme={theme}
+      initialState={initialState}
+      onStateChange={(state) => rememberNavState(accountId, state)}
+    >
+      {children}
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   const hasRestoredSession = useAuthStore((state) => state.hasRestoredSession);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const client = useAuthStore((state) => state.client);
+  // A signed-out or expired session must not bring its screen back.
+  React.useEffect(() => {
+    if (!isAuthenticated) clearNavState();
+  }, [isAuthenticated]);
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const t = useLocaleStore((state) => state.t);
   const localeHydrated = useLocaleStore((s) => s.hydrated);
@@ -1083,7 +1109,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+    <RestoringNavigationContainer accountId={activeAccountId} theme={navigationTheme}>
       <StatusBar style={statusBarStyle} />
       {/* On Fabric, native-stack keeps the screen right below the top live and
           freezes the ones further down. */}
@@ -1129,7 +1155,7 @@ export default function App() {
           )}
         </Stack.Screen>
       </Stack.Navigator>
-    </NavigationContainer>
+    </RestoringNavigationContainer>
   );
 }
 
