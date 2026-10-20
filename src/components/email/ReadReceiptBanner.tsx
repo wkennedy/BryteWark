@@ -153,8 +153,10 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
     await flagSent(inAccount(base, jmapAccountId));
   }, [identity, email, sendAccounts, mailboxes, requestedBy, jmapAccountId, ownerAppAccountId, t, flagSent]);
 
-  // Read through refs: `send` and `failureMessage` are rebuilt on a language
-  // switch, which must not re-run the auto-send.
+  // Only the language is left out of the auto-send's triggers: `t`, `send` and
+  // `failureMessage` are read through refs. `send`'s other inputs are listed
+  // on purpose, so the effect still re-runs when they change (a client that
+  // connects after a notification opened the message).
   const tRef = useLatestRef(t);
   const sendRef = useLatestRef(send);
   const failureMessageRef = useLatestRef(failureMessage);
@@ -176,7 +178,7 @@ export function ReadReceiptBanner({ email, requestedBy, jmapAccountId, appAccoun
       // Not retried, so say so rather than fail silently (webmail parity).
       toast.error(t('email_viewer.read_receipt.send_failed', 'Read receipt could not be sent'), failureMessageRef.current(err));
     });
-  }, [readReceiptResponse, shouldOffer, active, ownerAppAccountId, jmapAccountId, email.id, tRef, sendRef, failureMessageRef]);
+  }, [readReceiptResponse, shouldOffer, active, ownerAppAccountId, jmapAccountId, email.id, identity, email, sendAccounts, mailboxes, requestedBy, flagSent, tRef, sendRef, failureMessageRef]);
 
   if (!shouldOffer || readReceiptResponse === 'always') return null;
 
