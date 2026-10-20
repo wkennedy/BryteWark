@@ -844,14 +844,14 @@ Run on the x86_64 emulator only (the user's choice), signed in to the real accou
 **Not checked (no data, or it would change the server):** the month view's event chips (no events in range); trusted-sender images (no message with remote images); calendar invitations and counter-proposals (none in the mailbox); account switching (one account); a saved folder reorder; granting a share; the unreadable-settings prompt (needs a corrupt or refused settings read); SSO sign-out (no external provider); everything on iOS and on the S24+.
 
 **Left open:**
-- About 90 components read only `t` from the locale store and can show the old language until they re-render; a central fix (give `t` a new identity per locale) needs an audit of the ~50 hooks that list `t` as a dependency.
+- About 90 components read only `t` from the locale store and can show the old language until they re-render; a central fix (give `t` a new identity per locale) needs an audit of the ~50 hooks that list `t` as a dependency. — done in #24 (4340852, 161b5ff, 50fc6fe, 26e92be): `t` changes identity per language, the app waits for the saved language, and side-effecting effects read `t` through a ref
 - New strings are English-only outside en (restart title also in ar, fa, he).
-- The week view (TimeGridScrollView) has the same rows-added-above pattern the month view had; not seen failing.
-- Send and LogOut icons are not in the directional-icon guard.
+- The week view (TimeGridScrollView) has the same rows-added-above pattern the month view had; not seen failing. — done in #24 (0fd5e8e)
+- Send and LogOut icons are not in the directional-icon guard. — done in #24 (baaa9f1)
 - With "Hide in recent apps" on, the notification shade, system dialogs and the share sheet also blank the app until focus returns; a sheet opening while covered can show for up to 300 ms.
 - The RecentsCover and the font-scale flag override use React Native internals (`ReactModalHostView.dialog`, `dangerouslyForceOverride`); recheck on the next React Native upgrade.
-- A live system font size change sends the app back to the Inbox (the activity is recreated).
-- Drafts and Trash icons differ slightly between the drawer and folder settings.
+- A live system font size change sends the app back to the Inbox (the activity is recreated). — done in #24 (f044120, 26e92be): the navigation state is restored, without the composer
+- Drafts and Trash icons differ slightly between the drawer and folder settings. — done in #24 (89b2bb9): one shared role-to-icon map
 
 
 ## Shared-account mail hotfix (2026-10-11)
@@ -890,4 +890,4 @@ Run on the user's Galaxy S24+ (SM-S926U, Android 16) over wireless debugging, si
 - **The font cap misses line height and letter spacing.** React Native's Android `TextAttributeProps.java` scales `lineHeight` (line 381) and `letterSpacing` (line 398) by the full OS font scale, ignoring `maxFontSizeMultiplier`, which our patch only applies to the font size. At 2.0 rows grow taller and letter-spaced text (screen titles, section headers) wider than at 1.5. Nothing clipped where checked, but text with a `lineHeight` in a fixed box could. Our patch only touches JS, so a fix either patches `TextAttributeProps.java` (which needs React Native built from source, not the prebuilt AAR) or works around it in JS by shrinking `lineHeight` and `letterSpacing` by the scale beyond 1.5.
 - **Tab badge covers the icon at a large font.** At 2.0 the Mail tab's unread badge (chrome, capped at 1.3) covers about half the envelope; its offset doesn't grow with it.
 - **Two-dot truncation.** One sender at 2.0 ended "noreply-dmarc-s.." instead of an ellipsis.
-- **The list header stays in English after a switch to Arabic.** After the restart the Inbox header read "Inbox" while the drawer read البريد الوارد. `EmailListScreen.tsx` localizes the header with `t` (`headerTitle`, keyed on `[currentMailbox, t]`), so this is likely the known stale-`t` issue (Device checks 2), not a missing string. Unconfirmed.
+- **The list header stays in English after a switch to Arabic.** After the restart the Inbox header read "Inbox" while the drawer read البريد الوارد. `EmailListScreen.tsx` localizes the header with `t` (`headerTitle`, keyed on `[currentMailbox, t]`), so this is likely the known stale-`t` issue (Device checks 2), not a missing string. Unconfirmed. — confirmed and fixed in #24: the saved language loaded after the first render and the header memo never recomputed (161b5ff, 4340852)
