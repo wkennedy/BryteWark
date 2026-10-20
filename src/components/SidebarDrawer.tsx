@@ -9,9 +9,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { isLayoutRTL } from '../i18n';
 import { drawerClosedX, drawerSafeEdges } from '../lib/rtl-layout';
 import {
-  Inbox, Send, File as FileIcon, Trash2, Ban, Archive, Star,
-  Folder, FolderOpen, ChevronDown, ChevronRight, X, Settings, LogOut, Check, Plus,
-  Clock, Layers, Users, Tag, Mails, MailOpen, StickyNote, AlarmClock, Flag,
+  Send, Trash2, Star,
+  ChevronDown, ChevronRight, X, Settings, LogOut, Check, Plus,
+  Clock, Layers, Users, Tag, Mails, MailOpen,
   CheckCheck, Eraser, FolderPlus, Pencil, AlertTriangle, UserMinus, Search, Globe,
   MoreHorizontal, Share2, type LucideIcon,
 } from 'lucide-react-native';
@@ -25,6 +25,7 @@ import { useSettingsStore } from '../stores/settings-store';
 import { planEmptyFolder } from '../lib/empty-folder';
 import { useKeywordsStore, keywordToken } from '../stores/keywords-store';
 import { useFolderIconsStore, folderIconOf } from '../stores/folder-icons-store';
+import { mailboxIcon } from '../lib/mailbox-role-icon';
 import { roleIconColor } from '../lib/sidebar-icon-color';
 import { folderIconComponent } from './folder-icon';
 import { useLocaleStore } from '../stores/locale-store';
@@ -72,43 +73,6 @@ const UNIFIED_ROLES: UnifiedRole[] = ['sent', 'drafts', 'archive', 'junk', 'tras
 // Role folders that are kept out of the own tree while a virtual row stands
 // in for them (#495).
 const HIDDEN_WITH_VIRTUAL_ROW = new Set(['scheduled']);
-
-// Distinct icons for the special-use roles (#288), then a name-based guess
-// for servers that don't set roles, then a plain folder.
-function iconFor(
-  role: string | null | undefined,
-  name: string | undefined,
-  hasChildren: boolean,
-  isExpanded: boolean,
-): LucideIcon {
-  switch (role) {
-    case 'inbox': return Inbox;
-    case 'sent': return Send;
-    case 'drafts': return FileIcon;
-    case 'trash': return Trash2;
-    case 'junk':
-    case 'spam': return Ban;
-    case 'archive': return Archive;
-    case 'important': return Flag;
-    case 'flagged': return Star;
-    case 'all': return Mails;
-    case 'memos': return StickyNote;
-    case 'scheduled': return Clock;
-    case 'snoozed': return AlarmClock;
-    case 'shared': return Users;
-    default: break;
-  }
-  const lower = (name ?? '').toLowerCase();
-  if (lower.includes('inbox')) return Inbox;
-  if (lower.includes('sent')) return Send;
-  if (lower.includes('draft')) return FileIcon;
-  if (lower.includes('trash') || lower.includes('deleted')) return Trash2;
-  if (lower.includes('junk') || lower.includes('spam')) return Ban;
-  if (lower.includes('archive')) return Archive;
-  if (lower.includes('star') || lower.includes('flag')) return Star;
-  if (hasChildren) return isExpanded ? FolderOpen : Folder;
-  return Folder;
-}
 
 function RowCounts({ unread, total, showTotal, onPressUnread }: {
   unread: number;
@@ -772,7 +736,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
     };
   }, [mailboxes, accountSnapshots, activeAccountId, unifiedCrossAccount, includeGroupInUnified]);
 
-  const unifiedIcon = (role: UnifiedRole): LucideIcon => iconFor(role, undefined, false, false);
+  const unifiedIcon = (role: UnifiedRole): LucideIcon => mailboxIcon(role, undefined, false, false);
 
   const slideX = React.useRef(new Animated.Value(drawerClosedX(Dimensions.get('window').width, isLayoutRTL()))).current;
   const overlayOpacity = React.useRef(new Animated.Value(0)).current;
@@ -1192,7 +1156,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                     ? Users
                     : customIcon
                       ? folderIconComponent(customIcon)
-                      : iconFor(node.role, node.name, hasChildren, isExpanded);
+                      : mailboxIcon(node.role, node.name, hasChildren, isExpanded);
                   const isSelected = !node.isAccountNode && !tagViewActive && node.id === currentMailboxId;
                   return (
                     <SidebarRow

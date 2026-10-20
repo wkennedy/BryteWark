@@ -12,8 +12,7 @@ import {
   View,
 } from 'react-native';
 import {
-  Folder, Inbox, Send, FileText, Trash, Ban, Archive, Flag, Star, Mails,
-  StickyNote, Clock, AlarmClock, Users, Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Share2,
+  Folder, Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Share2,
 } from 'lucide-react-native';
 import { SettingsSection, Select } from './settings-section';
 import Button from '../Button';
@@ -32,26 +31,15 @@ import type { Mailbox } from '../../api/types';
 import { useFolderIconsStore, folderIconOf } from '../../stores/folder-icons-store';
 import { FOLDER_ICON_NAMES, folderIconLabel, type FolderIconName } from '../../lib/folder-icons';
 import { folderIconComponent } from '../folder-icon';
+import { roleIcon } from '../../lib/mailbox-role-icon';
 import { folderIconPrunePlan } from '../../lib/folder-icon-prune';
 import { useAuthStore } from '../../stores/auth-store';
 import { MailboxShareSheet, canOfferMailboxShare } from '../MailboxShareSheet';
 import { createAfterDismiss } from '../../lib/after-dismiss';
 
-// Spam is the drawer's and the move sheet's ban sign here too.
-const ROLE_ICON: Record<string, any> = {
-  inbox: Inbox, drafts: FileText, sent: Send, trash: Trash,
-  junk: Ban, spam: Ban, archive: Archive, important: Flag, flagged: Star,
-  all: Mails, memos: StickyNote, scheduled: Clock, snoozed: AlarmClock, shared: Users,
-};
-
 // Special-use roles a user folder can be given (RFC 8621 §2 + the common
 // Stalwart extras). The server enforces uniqueness per account.
 const ASSIGNABLE_ROLES = ['inbox', 'drafts', 'sent', 'archive', 'junk', 'trash', 'important', 'all', 'flagged', 'memos', 'scheduled', 'snoozed'];
-
-function getIcon(mb: Mailbox) {
-  if (mb.role && ROLE_ICON[mb.role]) return ROLE_ICON[mb.role];
-  return Folder;
-}
 
 const NO_PARENT = '__root__';
 const OWN_ACCOUNT = '__own__';
@@ -430,7 +418,7 @@ export function FolderSettings() {
           <View>
             {rows.map((mb) => {
               const custom = folderIconOf({ icons: folderIcons }, shownAccountId, mb.id);
-              const Icon = custom ? folderIconComponent(custom) : getIcon(mb);
+              const Icon = custom ? folderIconComponent(custom) : (roleIcon(mb.role) ?? Folder);
               const edge = edges.get(mb.id);
               const canMoveUp = !reordering && edge !== undefined && !edge.first;
               const canMoveDown = !reordering && edge !== undefined && !edge.last;
