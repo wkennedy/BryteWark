@@ -1031,7 +1031,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                   void signOutWithGuard(useAuthStore.getState().activeAccountId, () => navigation.navigate('Outbox'));
                 }}
               >
-                <LogOut size={16} color={c.textSecondary} />
+                <DirectionalIcon><LogOut size={16} color={c.textSecondary} /></DirectionalIcon>
                 <Text style={styles.accountMenuActionText} numberOfLines={1}>
                   {t('sidebar.sign_out_of', `Sign out of ${accountEmailFull || 'account'}`, { account: accountEmailFull || 'account' })}
                 </Text>
@@ -1048,7 +1048,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                     void signOutAllWithGuard(() => navigation.navigate('Outbox'));
                   }}
                 >
-                  <LogOut size={16} color={c.error} />
+                  <DirectionalIcon><LogOut size={16} color={c.error} /></DirectionalIcon>
                   <Text style={[styles.accountMenuActionText, { color: c.error }]}>
                     {t('sidebar.sign_out_all', 'Sign out of all accounts')}
                   </Text>
@@ -1093,7 +1093,7 @@ export default function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) 
                 style={({ pressed }) => [styles.quickRow, pressed && styles.rowPressed]}
                 onPress={() => { onClose(); navigation.navigate('Outbox'); }}
               >
-                <Send size={16} color={c.textSecondary} />
+                <DirectionalIcon><Send size={16} color={c.textSecondary} /></DirectionalIcon>
                 <Text style={styles.quickRowLabel}>{t('outbox.title_count', 'Outbox ({count})', { count: outboxCount })}</Text>
               </Pressable>
             )}

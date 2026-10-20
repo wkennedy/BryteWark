@@ -183,7 +183,7 @@ export default function OutboxScreen({ navigation }: Props) {
       </View>
       {rows.length === 0 ? (
         <View style={styles.center}>
-          <Send size={40} color={c.textMuted} style={{ opacity: 0.4 }} />
+          <DirectionalIcon><Send size={40} color={c.textMuted} style={{ opacity: 0.4 }} /></DirectionalIcon>
           <Text style={styles.emptyText}>{t('outbox.empty', 'Nothing waiting to be sent')}</Text>
           <Text style={styles.emptyHint}>
             {t('outbox.empty_hint', 'Messages you send while offline wait here until you are back online.')}

@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ROOT = join(__dirname, '..', '..', '..');
-const ICONS = ['ArrowLeft', 'ArrowRight', 'ChevronLeft', 'ChevronRight', 'Undo2', 'Redo2', 'Reply', 'ReplyAll', 'Forward'];
+const ICONS = ['ArrowLeft', 'ArrowRight', 'ChevronLeft', 'ChevronRight', 'Undo2', 'Redo2', 'Reply', 'ReplyAll', 'Forward', 'Send', 'LogOut'];
 
 // File → icons that stay as drawn on purpose.
 const ALLOWED: Record<string, string[]> = {

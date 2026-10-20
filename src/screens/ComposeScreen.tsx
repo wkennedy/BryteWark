@@ -3031,10 +3031,10 @@ export default function ComposeScreen({ route, navigation }: Props) {
               sending ? (
                 <ActivityIndicator color={c.primaryForeground} size="small" />
               ) : (
-                <Send
+                <DirectionalIcon><Send
                   size={14}
                   color={canSend ? c.primaryForeground : c.textMuted}
-                />
+                /></DirectionalIcon>
               )
             }
             style={!canSend ? styles.sendButtonDisabled : undefined}

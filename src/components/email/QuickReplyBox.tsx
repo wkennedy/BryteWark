@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, Alert, Keyboard } from 'react-native';
 import { Send, Maximize2 } from 'lucide-react-native';
+import { DirectionalIcon } from '../DirectionalIcon';
 import type { Email } from '../../api/types';
 import { spacing, radius, typography, type ThemePalette } from '../../theme/tokens';
 import { useColors } from '../../theme/colors';
@@ -358,7 +359,7 @@ export function QuickReplyBox({ email, jmapAccountId, ownerAppAccountId, onMoreO
           onPress={send}
           disabled={!text.trim() || sending}
         >
-          {sending ? <ActivityIndicator size="small" color={c.primaryForeground} /> : <Send size={14} color={c.primaryForeground} />}
+          {sending ? <ActivityIndicator size="small" color={c.primaryForeground} /> : <DirectionalIcon><Send size={14} color={c.primaryForeground} /></DirectionalIcon>}
           <Text style={styles.sendText}>{sending ? t('email_viewer.sending', 'Sending...') : t('email_viewer.send', 'Send')}</Text>
         </Pressable>
       </View>

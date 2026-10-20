@@ -513,7 +513,7 @@ export default function SettingsScreen({ onLogout, onBack, onTabSelect }: Settin
             onPress={onLogout}
             style={({ pressed }) => [styles.logoutBtn, pressed && styles.logoutBtnPressed]}
           >
-            <LogOut size={16} color={c.error} />
+            <DirectionalIcon><LogOut size={16} color={c.error} /></DirectionalIcon>
             <Text style={styles.logoutText}>{t('sidebar.sign_out', 'Sign Out')}</Text>
           </Pressable>
         </View>
