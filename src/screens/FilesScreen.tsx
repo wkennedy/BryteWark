@@ -58,6 +58,7 @@ import { observeServerFetch } from '../lib/server-reachability';
 import { getUniqueName } from '../lib/filenode-name';
 import { acceptedFileName, fileNameProblem } from '../lib/file-name-rules';
 import { useBackWhileFocused } from '../lib/use-back-while-focused';
+import { useLatestRef } from '../lib/use-latest-ref';
 import { filesBackStep } from '../lib/files-back';
 import type { FileNode } from '../api/types';
 import { spacing, radius, typography, fontPx, type ThemePalette } from '../theme/tokens';
@@ -212,6 +213,8 @@ export default function FilesScreen() {
   const headerName = path.length === 0 ? rootLabel : path[path.length - 1].name;
   const sharingEnabled = supportsSharing();
 
+  // A language switch must not reload the drive.
+  const tRef = useLatestRef(t);
   const loadFiles = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
       if (mode === 'refresh') setRefreshing(true);
@@ -234,13 +237,14 @@ export default function FilesScreen() {
         // A listing begun before an account switch belongs to the previous
         // account; the switch starts its own load.
         if (isStaleLoad(e)) return;
+        const t = tRef.current;
         setError(e instanceof Error ? e.message : t('files.download_error', 'Failed to load files'));
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [t],
+    [tRef],
   );
 
   // Load on mount and reset the whole drive whenever the active account
@@ -304,6 +308,7 @@ export default function FilesScreen() {
     }
     usePendingFilesOpen.getState().consume();
     if (plan.toast) {
+      const t = tRef.current;
       useToastStore.getState().addToast({
         type: 'error',
         title: plan.toast === 'deep_link.folder_not_found'
@@ -317,7 +322,7 @@ export default function FilesScreen() {
     setSelection(new Set());
     const file = resolved.file;
     if (file && canPreviewInApp(file)) setPreviewTarget({ ...file, displayName: file.name });
-  }, [pendingOpen, activeAccountId, loading, refreshing, nodesFor, allNodes, loadFiles, t]);
+  }, [pendingOpen, activeAccountId, loading, refreshing, nodesFor, allNodes, loadFiles, tRef]);
 
   const folderNodes = useMemo(() => {
     if (currentParentId === null) {

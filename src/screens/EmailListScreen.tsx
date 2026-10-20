@@ -29,6 +29,7 @@ import { HighlightedText } from '../components/email/HighlightedText';
 import type { RowSnippet } from '../lib/search-snippet';
 import { VerificationCodeChip, copyVerificationCode } from '../components/email/VerificationCodeChip';
 import { chipCodeFor } from '../lib/verification-code';
+import { useLatestRef } from '../lib/use-latest-ref';
 import type { LoadListAttachments } from '../lib/list-attachments';
 import { useNetworkStore } from '../stores/network-store';
 import {
@@ -1170,6 +1171,8 @@ export default function EmailListScreen({ onEmailPress, onComposePress }: EmailL
   // a link that resolves never races it.
   const pendingFolder = usePendingMailFolder((s) => s.target);
   const mailboxListsSynced = useEmailStore((s) => s.mailboxListsSynced);
+  // A language switch must not open a folder again.
+  const tRef = useLatestRef(t);
   React.useEffect(() => {
     if (pendingFolder) {
       const plan = planMailFolderOpen(pendingFolder, {
@@ -1185,6 +1188,7 @@ export default function EmailListScreen({ onEmailPress, onComposePress }: EmailL
       }
       if (plan.action === 'already_open') return;
       if (plan.action === 'not_found') {
+        const t = tRef.current;
         useToastStore.getState().addToast({
           type: 'error',
           title: t('deep_link.folder_not_found', 'This folder is no longer available.'),
@@ -1197,7 +1201,7 @@ export default function EmailListScreen({ onEmailPress, onComposePress }: EmailL
       if (!inbox) return;
       void selectMailbox(inbox.id);
     }
-  }, [pendingFolder, activeAccountId, mailboxListsSynced, mailboxes, currentMailboxId, selectMailbox, t]);
+  }, [pendingFolder, activeAccountId, mailboxListsSynced, mailboxes, currentMailboxId, selectMailbox, tRef]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>

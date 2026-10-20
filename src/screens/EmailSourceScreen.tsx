@@ -9,6 +9,7 @@ import * as Clipboard from 'expo-clipboard';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { fetchRawEmail, shareEmailEml } from '../lib/email-export';
+import { useLatestRef } from '../lib/use-latest-ref';
 import { spacing, typography, componentSizes, radius, fontPx, type ThemePalette } from '../theme/tokens';
 import { useColors } from '../theme/colors';
 import { useLocaleStore } from '../stores/locale-store';
@@ -23,6 +24,8 @@ export default function EmailSourceScreen({ route, navigation }: Props) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
+  // A language switch must not refetch the source.
+  const tRef = useLatestRef(t);
   // Blobs are account-scoped, so a message from a shared/group mailbox has
   // to be fetched against its owning account.
   const { blobId, subject, jmapAccountId } = route.params;
@@ -37,11 +40,12 @@ export default function EmailSourceScreen({ route, navigation }: Props) {
         const text = await fetchRawEmail(blobId, jmapAccountId);
         if (!cancelled) setRaw(text);
       } catch (e) {
+        const t = tRef.current;
         if (!cancelled) setError(e instanceof Error ? e.message : t('email_viewer.load_failed', 'Failed to load email source'));
       }
     })();
     return () => { cancelled = true; };
-  }, [blobId, jmapAccountId, t]);
+  }, [blobId, jmapAccountId, tRef]);
 
   const truncated = !!raw && raw.length > MAX_DISPLAY_BYTES;
   const shown = React.useMemo(() => (raw && truncated ? raw.slice(0, MAX_DISPLAY_BYTES) : raw), [raw, truncated]);

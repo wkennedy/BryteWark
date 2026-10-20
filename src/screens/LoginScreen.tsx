@@ -22,6 +22,7 @@ import {
 } from '../lib/server-discovery';
 import { toUnicodeEmail } from '../lib/idn';
 import { describeLoginError, type LoginErrorCopy } from '../lib/login-errors';
+import { useLatestRef } from '../lib/use-latest-ref';
 import LoginShell from './login/LoginShell';
 import ChooseStep from './login/ChooseStep';
 import EmailStep from './login/EmailStep';
@@ -438,6 +439,8 @@ export default function LoginScreen({ onLogin, isAddMode = false, onCancel }: Lo
   React.useEffect(() => {
     latestRef.current = { handleSignInLink, onCancel };
   }, [handleSignInLink, onCancel]);
+  // A language switch must not take the link again or reopen its dialog.
+  const tRef = useLatestRef(t);
   const mountedRef = React.useRef(false);
   const confirmingLinkIdRef = React.useRef<number | null>(null);
   React.useEffect(() => {
@@ -458,7 +461,7 @@ export default function LoginScreen({ onLogin, isAddMode = false, onCancel }: Lo
     const taken = usePendingSignInLinkStore.getState().take();
     if (!taken) return;
     if (!taken.needsConfirmation) {
-      void handleSignInLink(taken.payload);
+      void latestRef.current.handleSignInLink(taken.payload);
       return;
     }
     // Add account opened for this link closes again on Cancel; one the user
@@ -483,6 +486,7 @@ export default function LoginScreen({ onLogin, isAddMode = false, onCancel }: Lo
       }
       if (store.discard(taken.id) && leaveOnCancel) latestRef.current.onCancel?.();
     };
+    const t = tRef.current;
     const { title, message } = signInLinkConfirmation(taken.payload, isAddMode, t);
     Alert.alert(
       title,
@@ -494,7 +498,7 @@ export default function LoginScreen({ onLogin, isAddMode = false, onCancel }: Lo
       // Android back or a tap outside the dialog counts as Cancel.
       { cancelable: true, onDismiss: () => answer(false) },
     );
-  }, [busy, handleSignInLink, history.length, isAddMode, searching, signInLinkPending, t]);
+  }, [busy, history.length, isAddMode, searching, signInLinkPending, tRef]);
 
   // A tapped link that is refused outright (a pairing code for a plain-http
   // webmail) ran nothing; say why, as for a scanned one.
