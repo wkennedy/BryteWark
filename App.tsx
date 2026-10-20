@@ -119,6 +119,8 @@ syncFontScale();
 // Read the settings now, beside the stores that hydrate on import, so the start
 // folder is known by the time the session restores.
 void useSettingsStore.getState().hydrate();
+// The language too: App renders nothing with text until it is read.
+void useLocaleStore.getState().hydrate();
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -456,6 +458,7 @@ export default function App() {
   const client = useAuthStore((state) => state.client);
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const t = useLocaleStore((state) => state.t);
+  const localeHydrated = useLocaleStore((s) => s.hydrated);
 
   // Resolve the user's theme preference to a concrete light/dark style for the
   // system status bar. The rest of the app's colors are still hard-coded dark
@@ -1046,6 +1049,16 @@ export default function App() {
       handle = null;
     };
   }, [client, isAuthenticated, haveLiveSession, activeAccountId]);
+
+  // No language is known yet, so nothing is written.
+  if (!localeHydrated) {
+    return (
+      <>
+        <StatusBar style={statusBarStyle} />
+        <View style={{ flex: 1, backgroundColor: background }} />
+      </>
+    );
+  }
 
   // Skip the "Restoring session" flash for returning users: if we already
   // have a persisted active account, render the main UI immediately with
