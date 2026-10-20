@@ -618,7 +618,7 @@ Left open:
   - the folder icon picker and tag dots;
   - the share sheet, including the iOS share-after-dismiss path;
   - the Jalali labels in `fa`;
-  - RTL on a phone (only an emulator in Arabic so far);
+  - RTL on a phone (only an emulator in Arabic so far); — checked on the S24+ in Arabic (Device checks 3)
   - counter-proposal Apply against a real attendee;
   - the month back-arrow behaviour.
 - **Follow-ups parked in the ledger:**
@@ -657,10 +657,10 @@ Left open:
 
 - **Device checks still to run** (all earlier ones from Phase 6e and Phase 7 stay open too):
   - the font size at Large with a 2.0 system font, with calendar events and toasts on screen;
-  - the settings-row wrap on a phone (checked on the x86_64 emulator only);
+  - the settings-row wrap on a phone (checked on the x86_64 emulator only); — checked on the S24+ at 1.0 and 2.0 (Device checks 3)
   - the month chips with events at Large and at a 2.0 system font;
   - the iOS share sheet and its fallback timer;
-  - the font cap on a phone;
+  - the font cap on a phone; — checked on the S24+ (Device checks 3): glyphs stop at 1.5, but line height and letter spacing don't
   - pinning against the real server's authserv-id (the `Authentication-Results` header on a received message).
 - **Sender-check limits:**
   - Stalwart must stamp its own `Authentication-Results` on every received message, and strip incoming ones that claim its id. This is unverified. On a server that does neither, another local user can forge a pass. — checked in c02dc3b against Stalwart 0.16.25: it stamps mail from outside and strips nothing, and it stamps nothing on a local submission, so a local user can forge a pass (see Follow-up cleanup 2 below).
@@ -877,3 +877,17 @@ Plan: `docs/superpowers/plans/2026-10-13-shared-account-sending.md`. Decisions: 
 - **Group address containing the sub-address separator.** It can't take the composer's tag: the send is refused as a custom From.
 
 Closed by the follow-ups (amended P3): mail in a shared account is never answered from your own identity. Unsubscribe mail and read receipts go from the group identity that received it, else the group's main identity (first undeletable, catch-alls skipped), after the group-sender check. A share with no identity to send from (folder-only, or catch-alls only) refuses them, and the read receipt isn't offered (00447d7).
+
+## Device checks 3 (2026-10-20)
+
+Run on the user's Galaxy S24+ (SM-S926U, Android 16) over wireless debugging, signed in to the real account, with no server changes. The build was main at `b2e85ff` (0.1.72, debug-signed release, installed over the existing app). Font scale and app language were restored afterwards. The shared-account checks were skipped (the user's choice): the account has no shared mailbox, so they need a granted share or a throwaway Stalwart.
+
+**Passed on the S24+:** the 1.5x cap on glyph size (row labels are the same size at a 1.5 and a 2.0 system font); nothing clips at 2.0 in Settings or the Inbox; settings-row wrapping at 1.0 and 2.0 in English; right-to-left in Arabic after the restart prompt: tab bar, list rows, compose button, drawer (opens from the right), Settings chevrons, the message view's back arrow, reply, reply-all and forward icons, previous and next, and the quick reply box.
+
+**Not checked:** the unreadable-settings prompt (needs a corrupt or refused settings read); settings rows in Arabic beyond the main list; everything shared-account (From sheet headers, group rows in Settings, group send and undo, unsubscribe and receipts on group mail, the shared-draft hotfix).
+
+**Left open:**
+- **The font cap misses line height and letter spacing.** React Native's Android `TextAttributeProps.java` scales `lineHeight` (line 381) and `letterSpacing` (line 398) by the full OS font scale, ignoring `maxFontSizeMultiplier`, which our patch only applies to the font size. At 2.0 rows grow taller and letter-spaced text (screen titles, section headers) wider than at 1.5. Nothing clipped where checked, but text with a `lineHeight` in a fixed box could. Our patch only touches JS, so a fix either patches `TextAttributeProps.java` (which needs React Native built from source, not the prebuilt AAR) or works around it in JS by shrinking `lineHeight` and `letterSpacing` by the scale beyond 1.5.
+- **Tab badge covers the icon at a large font.** At 2.0 the Mail tab's unread badge (chrome, capped at 1.3) covers about half the envelope; its offset doesn't grow with it.
+- **Two-dot truncation.** One sender at 2.0 ended "noreply-dmarc-s.." instead of an ellipsis.
+- **The list header stays in English after a switch to Arabic.** After the restart the Inbox header read "Inbox" while the drawer read البريد الوارد. `EmailListScreen.tsx` localizes the header with `t` (`headerTitle`, keyed on `[currentMailbox, t]`), so this is likely the known stale-`t` issue (Device checks 2), not a missing string. Unconfirmed.
