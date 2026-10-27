@@ -1,10 +1,17 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups on `fix/follow-up-minors`, which are not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups (#25), merged afterwards, and a fix for event participants on `fix/event-participants-save`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Smaller follow-up minors (unmerged)
+## Event participants on save (unmerged)
+
+Branch `fix/event-participants-save`.
+
+### Fixes
+- An event's participants are no longer dropped on save without a word. An address still in the participant field when you press Save is added and invited; text that isn't an address, or participants with no address to send the invitations from, stop the save with a message saying why (5915d65).
+
+## Smaller follow-up minors (#25)
 
 Branch `fix/follow-up-minors`. Three of the minors the #24 review deferred.
 
