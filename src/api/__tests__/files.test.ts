@@ -44,6 +44,7 @@ import {
   renameFileNode,
   setFileNodeShare,
   supportsSharing,
+  canShareFileNode,
 } from '../files';
 
 const mockRequest = jmapClient.request as ReturnType<typeof vi.fn>;
@@ -912,5 +913,89 @@ describe('planFileNodePick', () => {
       { ...file('e:f1', 'theirs.txt', 'b9'), accountId: 'e', isShared: true },
     ], { accountId: 'c', maxSizeUpload: 0, attachedNodeIds: [], fitsTotal: fitsAll });
     expect(plan).toEqual({ attach: [], tooLarge: [], alreadyAttached: [], overTotal: false });
+  });
+});
+
+// Stalwart 1.0 implements filenode-18: a node's kind is `@type`
+// (File/Directory/SymLink), required on create; its content type is
+// `mediaType`, not `type`; and only folders carry sharing. Its capability
+// names the kinds it supports in `supportedNodeTypes`.
+describe('Stalwart 1.0 (filenode-18)', () => {
+  const current = () => mockGetAccountCapability.mockReturnValue({
+    forbiddenNameChars: '/', supportedNodeTypes: ['File', 'Directory'],
+  });
+  const ack = (key: string) => mockRequest.mockResolvedValue({
+    methodResponses: [['FileNode/set', { created: { [key]: { id: 'c1' } } }, '0']],
+  });
+
+  it('creates a folder as a Directory', async () => {
+    current();
+    ack('new-dir');
+    await createFolder('Docs', 'parent-1');
+    expect(mockRequest.mock.calls[0][0][0][1].create['new-dir']).toEqual({
+      '@type': 'Directory', name: 'Docs', parentId: 'parent-1',
+    });
+  });
+
+  it('creates a file as a File with its mediaType', async () => {
+    current();
+    ack('new-file');
+    const copy = await copyFileNode(
+      { id: 'f1', name: 'a.pdf', type: 'application/pdf', blobId: 'b1', size: 3 }, null,
+    );
+    expect(mockRequest.mock.calls[0][0][0][1].create['new-file']).toEqual({
+      '@type': 'File', name: 'a.pdf', mediaType: 'application/pdf', blobId: 'b1', size: 3,
+    });
+    expect(copy.type).toBe('application/pdf');
+  });
+
+  it('asks for @type and mediaType and reads mediaType as the type', async () => {
+    current();
+    mockRequest.mockResolvedValue({
+      methodResponses: [['FileNode/get', {
+        list: [
+          { '@type': 'File', id: 'f1', name: 'a.pdf', mediaType: 'application/pdf', blobId: 'b1', size: 3 },
+          { '@type': 'Directory', id: 'd1', name: 'Docs' },
+        ],
+      }, '0']],
+    });
+    const nodes = await getAllFileNodes();
+    const props = mockRequest.mock.calls[0][0][0][1].properties as string[];
+    expect(props).toEqual(expect.arrayContaining(['@type', 'mediaType']));
+    expect(props).not.toContain('type');
+    expect(nodes.find((n) => n.id === 'f1')?.type).toBe('application/pdf');
+    expect(isFolder(nodes.find((n) => n.id === 'd1')!)).toBe(true);
+  });
+
+  it('leaves symbolic links out of the listing, which has no place for them', async () => {
+    current();
+    mockRequest.mockResolvedValue({
+      methodResponses: [['FileNode/get', {
+        list: [
+          { '@type': 'SymLink', id: 's1', name: 'link', target: '/x' },
+          { '@type': 'Directory', id: 'd1', name: 'Docs' },
+        ],
+      }, '0']],
+    });
+    const nodes = await getAllFileNodes();
+    expect(nodes.map((n) => n.id)).toEqual(['d1']);
+  });
+
+  it('shares folders only', () => {
+    current();
+    expect(canShareFileNode({ blobId: null })).toBe(true);
+    expect(canShareFileNode({ blobId: 'b1' })).toBe(false);
+  });
+
+  it('still shares files on 0.16', () => {
+    expect(canShareFileNode({ blobId: 'b1' })).toBe(true);
+  });
+
+  it('keeps `type` and no @type on 0.16', async () => {
+    ack('new-file');
+    await copyFileNode({ id: 'f1', name: 'a.pdf', type: 'application/pdf', blobId: 'b1', size: 3 }, null);
+    const sent = mockRequest.mock.calls[0][0][0][1].create['new-file'];
+    expect(sent.type).toBe('application/pdf');
+    expect(sent).not.toHaveProperty('@type');
   });
 });
