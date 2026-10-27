@@ -9,6 +9,12 @@
 // S256 challenge, receive the code on `bulwarkmobile://auth/callback`, and
 // exchange it at the token endpoint. The resulting bundle is the same shape
 // the hand-off produces, so `connectWithOAuth` and the refresh path apply.
+//
+// A server that advertises the OAuth service scopes (Stalwart >= 1.0) enforces
+// the OAuth profile for open public clients: it refuses a client id it does
+// not know, and a token reaches only the services its scopes name. There the
+// app registers itself first (RFC 7591, a stateless `swc1.` id) and asks for
+// those scopes.
 
 import * as WebBrowser from 'expo-web-browser';
 import { secureFetch } from './client-cert';
@@ -23,9 +29,24 @@ export interface OAuthMetadata {
   revocation_endpoint?: string;
   // OIDC RP-Initiated Logout: where sign-out ends the provider's session.
   end_session_endpoint?: string;
+  // RFC 7591 dynamic client registration.
+  registration_endpoint?: string;
   scopes_supported?: string[];
   prompt_values_supported?: string[];
 }
+
+// The OAuth service scopes (Stalwart's names): one per protocol family.
+export const SERVICE_SCOPES = [
+  'urn:ietf:params:oauth:scope:mail',
+  'urn:ietf:params:oauth:scope:contacts',
+  'urn:ietf:params:oauth:scope:calendars',
+  'urn:ietf:params:oauth:scope:files',
+] as const;
+
+// The redirect of a dynamically registered client. Stalwart registers only a
+// private-use scheme with a dot (RFC 8252 §7.1) or loopback, so not
+// `bulwarkmobile://`; the scheme is in app.config.js and the Android manifest.
+export const REGISTERED_REDIRECT_URI = 'org.bulwarkmail.mobile:/oauth/callback';
 
 const DISCOVERY_TIMEOUT_MS = 8_000;
 
@@ -122,6 +143,44 @@ function addAccountPrompt(metadata: OAuthMetadata): string {
 }
 
 /**
+ * Register the app as a public client (RFC 7591) and return its client id.
+ * Stalwart stores nothing for it (the id encodes the registration), so each
+ * sign-in registers afresh; the id is kept in the token bundle for refresh and
+ * revocation.
+ */
+async function registerClient(serverUrl: string, endpoint: string, redirectUri: string, scope: string): Promise<string> {
+  if (!sameHost(endpoint, serverUrl) && !/^https:\/\//i.test(endpoint)) {
+    throw new HandoffError('Registration endpoint is not trusted');
+  }
+  let response: Response;
+  try {
+    response = await secureFetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_name: 'Bulwark Mail',
+        redirect_uris: [redirectUri],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        scope,
+      }),
+    });
+  } catch (e) {
+    throw new HandoffError(`Could not reach the registration endpoint: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).slice(0, 200);
+    throw new HandoffError(`Client registration failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  const data = (await response.json().catch(() => null)) as { client_id?: unknown } | null;
+  if (typeof data?.client_id !== 'string' || !data.client_id) {
+    throw new HandoffError('Registration response missing client_id');
+  }
+  return data.client_id;
+}
+
+/**
  * Run the authorization-code + PKCE flow in the system browser. Throws
  * `HandoffCancelledError` when the user closes the browser. With `addAccount`
  * the provider is asked to pick or sign in another account, and iOS runs the
@@ -134,15 +193,20 @@ export async function loginWithPkce(
   metadata: OAuthMetadata,
   opts?: { clientId?: string; scopes?: string; redirectUri?: string; addAccount?: boolean },
 ): Promise<OAuthTokens & { idToken?: string }> {
-  const clientId = opts?.clientId ?? DEFAULT_CLIENT_ID;
-  const redirectUri = opts?.redirectUri ?? HANDOFF_REDIRECT_URI;
+  const serviceScopes = SERVICE_SCOPES.filter((s) => metadata.scopes_supported?.includes(s));
+  const registers = !opts?.clientId && serviceScopes.length > 0 && !!metadata.registration_endpoint;
+  const redirectUri = opts?.redirectUri ?? (registers ? REGISTERED_REDIRECT_URI : HANDOFF_REDIRECT_URI);
+  const scope = opts?.scopes
+    ?? (registers
+      ? [...serviceScopes, ...['openid', 'offline_access'].filter((s) => metadata.scopes_supported!.includes(s))].join(' ')
+      : metadata.scopes_supported?.length
+        ? ['openid', 'email', 'profile', 'offline_access'].filter((s) => metadata.scopes_supported!.includes(s)).join(' ') || metadata.scopes_supported.join(' ')
+        : 'openid email profile offline_access');
+  const clientId = opts?.clientId
+    ?? (registers ? await registerClient(serverUrl, metadata.registration_endpoint!, redirectUri, scope) : DEFAULT_CLIENT_ID);
   const verifier = generateCodeVerifier();
   const challenge = generateCodeChallenge(verifier);
   const state = randomHex(16);
-  const scope = opts?.scopes
-    ?? (metadata.scopes_supported?.length
-      ? ['openid', 'email', 'profile', 'offline_access'].filter((s) => metadata.scopes_supported!.includes(s)).join(' ') || metadata.scopes_supported.join(' ')
-      : 'openid email profile offline_access');
 
   const params = new URLSearchParams({
     response_type: 'code',
