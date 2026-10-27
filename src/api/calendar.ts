@@ -434,6 +434,14 @@ export async function queryEvents(
   return ids;
 }
 
+// The server declining to expand a window. Stalwart 1.0 (calendars-33) says
+// so with `cannotCalculateOccurrences`, or `expandDurationTooLarge` for a
+// window over its maxExpandedQueryDuration; 0.16 sent `invalidArguments`.
+function isExpansionRefusal(error: { type?: string; description?: string } | undefined): boolean {
+  if (error?.type === 'cannotCalculateOccurrences' || error?.type === 'expandDurationTooLarge') return true;
+  return error?.type === 'invalidArguments' && /expanded recurrences exceeds/i.test(error.description ?? '');
+}
+
 /**
  * Occurrence ids in a date window, with recurring series expanded by the
  * server into one synthetic id per occurrence (CalendarEvent/query
@@ -442,7 +450,8 @@ export async function queryEvents(
  * the two range bounds, the form the server expands with (the webmail
  * sends the same); the caller keeps the calendars it asked for. `null` when
  * the server refuses to expand this range (more occurrences than its
- * maxRecurrenceExpansions): the caller then expands on the device.
+ * maxRecurrenceExpansions, or a window over its maxExpandedQueryDuration):
+ * the caller then expands on the device.
  */
 export async function queryExpandedEvents(
   after: string,
@@ -468,13 +477,7 @@ export async function queryExpandedEvents(
     if (timeZone) args.timeZone = timeZone;
     const res = await jmapClient.request([['CalendarEvent/query', args, '0']], USING, { gen: at.gen });
     const entry = res?.methodResponses?.[0];
-    if (
-      entry?.[0] === 'error'
-      && entry[1]?.type === 'invalidArguments'
-      && /expanded recurrences exceeds/i.test(entry[1]?.description ?? '')
-    ) {
-      return null;
-    }
+    if (entry?.[0] === 'error' && isExpansionRefusal(entry[1])) return null;
     const batch = methodResult<{ ids: string[] }>(res).ids ?? [];
     ids.push(...batch);
     if (batch.length < QUERY_PAGE_SIZE) break;

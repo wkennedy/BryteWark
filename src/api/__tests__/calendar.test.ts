@@ -160,6 +160,17 @@ describe('calendar operations', () => {
       expect(await queryExpandedEvents('2026-01-01T00:00:00Z', '2027-01-01T00:00:00Z')).toBeNull();
     });
 
+    // Stalwart 1.0 (calendars-33) names the refusal, and refuses a window
+    // longer than its maxExpandedQueryDuration.
+    it.each(['cannotCalculateOccurrences', 'expandDurationTooLarge'])(
+      'returns null when Stalwart 1.0 refuses the expansion with %s',
+      async (type) => {
+        mockRequest.mockResolvedValue({ methodResponses: [['error', { type }, '0']] });
+
+        expect(await queryExpandedEvents('2026-01-01T00:00:00Z', '2028-01-01T00:00:00Z')).toBeNull();
+      },
+    );
+
     it('throws on any other error', async () => {
       mockRequest.mockResolvedValue({
         methodResponses: [['error', { type: 'forbidden' }, '0']],
