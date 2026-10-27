@@ -15,6 +15,8 @@ import {
   organizerAddressForSave,
   newInvitationOrganizer,
   participantsLockedFor,
+  attendeesForSave,
+  isParticipantAddress,
 } from '../calendar-participants';
 
 const event: Partial<CalendarEvent> = {
@@ -383,5 +385,37 @@ describe('participantQuery', () => {
     expect(participantQuery(' a ')).toBe('');
     expect(participantQuery('')).toBe('');
     expect(participantQuery(' al ')).toBe('al');
+  });
+});
+
+describe('isParticipantAddress', () => {
+  it('takes an email address only', () => {
+    expect(isParticipantAddress(' bob@example.com ')).toBe(true);
+    expect(isParticipantAddress('bob')).toBe(false);
+    expect(isParticipantAddress('bob@example')).toBe(false);
+    expect(isParticipantAddress('')).toBe(false);
+  });
+});
+
+describe('attendeesForSave', () => {
+  const bob = { name: 'Bob', email: 'bob@example.com' };
+
+  it('adds an address typed but not yet added', () => {
+    expect(attendeesForSave([bob], ' carol@example.com ')).toEqual({
+      attendees: [bob, { name: '', email: 'carol@example.com' }],
+      invalid: null,
+    });
+  });
+
+  it('leaves the guests alone when nothing is typed', () => {
+    expect(attendeesForSave([bob], '  ')).toEqual({ attendees: [bob], invalid: null });
+  });
+
+  it('does not add a guest twice', () => {
+    expect(attendeesForSave([bob], 'BOB@example.com')).toEqual({ attendees: [bob], invalid: null });
+  });
+
+  it('reports typed text that is not an address instead of dropping it', () => {
+    expect(attendeesForSave([bob], ' carol ')).toEqual({ attendees: [bob], invalid: 'carol' });
   });
 });

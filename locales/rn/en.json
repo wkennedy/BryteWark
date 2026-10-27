@@ -107,7 +107,9 @@
     "participants": {
       "availability": {
         "failed": "Couldn't check availability"
-      }
+      },
+      "invalid_address": "\"{address}\" is not an email address. Correct or remove it to save the event.",
+      "no_organizer": "There is no address to send invitations from, so the participants can't be saved. Remove them to save the event."
     },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {occurrence} other {occurrences}}",

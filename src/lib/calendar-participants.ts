@@ -445,6 +445,28 @@ export function seedAttendees(
   return out;
 }
 
+/** Whether typed guest text is an email address. */
+export function isParticipantAddress(text: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text.trim());
+}
+
+/**
+ * The guests a save sends. An address still in the participant field (Save
+ * pressed straight after typing it) counts as one; leftover text that is not
+ * an address comes back as `invalid` so it is never dropped unseen.
+ */
+export function attendeesForSave(
+  attendees: Attendee[],
+  draft: string,
+): { attendees: Attendee[]; invalid: string | null } {
+  const typed = draft.trim();
+  if (!typed) return { attendees, invalid: null };
+  if (!isParticipantAddress(typed)) return { attendees, invalid: typed };
+  const key = typed.toLowerCase();
+  if (attendees.some((a) => a.email.toLowerCase() === key)) return { attendees, invalid: null };
+  return { attendees: [...attendees, { name: '', email: typed }], invalid: null };
+}
+
 const PARTICIPANT_MIN_QUERY = 2;
 const PARTICIPANT_SUGGESTION_LIMIT = 8;
 

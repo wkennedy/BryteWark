@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, other {#時間後に開始}}",
       "starts_in_minutes": "{count, plural, other {#分後に開始}}"
     },
+    "participants": {
+      "invalid_address": "「{address}」はメールアドレスではありません。予定を保存するには、修正するか削除してください。",
+      "no_organizer": "招待を送信するアドレスがないため、参加者を保存できません。予定を保存するには参加者を削除してください。"
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, other {回}}",
       "every_count_days": "{count, plural, other {#日ごと}}",

@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {# цагийн дараа эхэлнэ} other {# цагийн дараа эхэлнэ}}",
       "starts_in_minutes": "{count, plural, one {# минутын дараа эхэлнэ} other {# минутын дараа эхэлнэ}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" нь имэйл хаяг биш байна. Үйл явдлыг хадгалахын тулд засах эсвэл устгана уу.",
+      "no_organizer": "Урилга илгээх хаяг байхгүй тул оролцогчдыг хадгалах боломжгүй. Үйл явдлыг хадгалахын тулд тэднийг устгана уу."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {удаа} other {удаа}}",
       "every_count_days": "{count, plural, one {# өдөр бүр} other {# өдөр бүр}}",

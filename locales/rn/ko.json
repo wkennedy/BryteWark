@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, other {#시간 후 시작}}",
       "starts_in_minutes": "{count, plural, other {#분 후 시작}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\"은(는) 이메일 주소가 아닙니다. 일정을 저장하려면 수정하거나 삭제하세요.",
+      "no_organizer": "초대를 보낼 주소가 없어 참석자를 저장할 수 없습니다. 일정을 저장하려면 참석자를 삭제하세요."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, other {회}}",
       "every_count_days": "{count, plural, other {#일마다}}",

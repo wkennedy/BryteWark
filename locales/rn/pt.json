@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Começa em # hora} other {Começa em # horas}}",
       "starts_in_minutes": "{count, plural, one {Começa em # minuto} other {Começa em # minutos}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" não é um endereço de e-mail. Corrija-o ou remova-o para guardar o evento.",
+      "no_organizer": "Não há nenhum endereço a partir do qual enviar os convites, por isso os participantes não podem ser guardados. Remova-os para guardar o evento."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {repetição} other {repetições}}",
       "every_count_days": "{count, plural, one {Todos os dias} other {A cada # dias}}",

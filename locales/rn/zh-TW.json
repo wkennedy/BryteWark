@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, other {# 小時後開始}}",
       "starts_in_minutes": "{count, plural, other {# 分鐘後開始}}"
     },
+    "participants": {
+      "invalid_address": "「{address}」不是電子郵件地址。請更正或移除後再儲存活動。",
+      "no_organizer": "沒有可用來寄送邀請的地址，因此無法儲存參與者。請移除參與者後再儲存活動。"
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, other {次後}}",
       "every_count_days": "{count, plural, other {每 # 天}}",

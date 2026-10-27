@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {# óra múlva kezdődik} other {# óra múlva kezdődik}}",
       "starts_in_minutes": "{count, plural, one {# perc múlva kezdődik} other {# perc múlva kezdődik}}"
     },
+    "participants": {
+      "invalid_address": "A(z) „{address}” nem e-mail-cím. Javítsa vagy távolítsa el az esemény mentéséhez.",
+      "no_organizer": "Nincs cím, amelyről a meghívók elküldhetők, ezért a résztvevők nem menthetők. Távolítsa el őket az esemény mentéséhez."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {alkalom} other {alkalom}}",
       "every_count_days": "{count, plural, one {Naponta} other {# naponta}}",

@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Zaczyna się za # godzinę} few {Zaczyna się za # godziny} many {Zaczyna się za # godzin} other {Zaczyna się za # godziny}}",
       "starts_in_minutes": "{count, plural, one {Zaczyna się za # minutę} few {Zaczyna się za # minuty} many {Zaczyna się za # minut} other {Zaczyna się za # minuty}}"
     },
+    "participants": {
+      "invalid_address": "„{address}” nie jest adresem e-mail. Popraw go lub usuń, aby zapisać wydarzenie.",
+      "no_organizer": "Brak adresu, z którego można wysłać zaproszenia, więc uczestników nie można zapisać. Usuń ich, aby zapisać wydarzenie."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {wystąpieniu} few {wystąpieniach} many {wystąpieniach} other {wystąpienia}}",
       "every_count_days": "{count, plural, one {Codziennie} few {Co # dni} many {Co # dni} other {Co # dnia}}",

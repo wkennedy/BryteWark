@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {# ساعت دیگر شروع می‌شود} other {# ساعت دیگر شروع می‌شود}}",
       "starts_in_minutes": "{count, plural, one {# دقیقه دیگر شروع می‌شود} other {# دقیقه دیگر شروع می‌شود}}"
     },
+    "participants": {
+      "invalid_address": "«{address}» نشانی ایمیل نیست. برای ذخیرهٔ رویداد آن را اصلاح یا حذف کنید.",
+      "no_organizer": "نشانی‌ای برای ارسال دعوت‌نامه‌ها وجود ندارد، بنابراین شرکت‌کنندگان ذخیره نمی‌شوند. برای ذخیرهٔ رویداد آن‌ها را حذف کنید."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {بار} other {بار}}",
       "every_count_days": "{count, plural, one {هر # روز} other {هر # روز}}",

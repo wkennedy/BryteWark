@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Beginnt in # Stunde} other {Beginnt in # Stunden}}",
       "starts_in_minutes": "{count, plural, one {Beginnt in # Minute} other {Beginnt in # Minuten}}"
     },
+    "participants": {
+      "invalid_address": "„{address}“ ist keine E-Mail-Adresse. Korrigiere oder entferne sie, um den Termin zu speichern.",
+      "no_organizer": "Es gibt keine Adresse, von der aus Einladungen gesendet werden können, daher können die Teilnehmer nicht gespeichert werden. Entferne sie, um den Termin zu speichern."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {Termin} other {Terminen}}",
       "every_count_days": "{count, plural, one {Jeden Tag} other {Alle # Tage}}",

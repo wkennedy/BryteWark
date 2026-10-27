@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, zero {Sākas pēc # stundām} one {Sākas pēc # stundas} other {Sākas pēc # stundām}}",
       "starts_in_minutes": "{count, plural, zero {Sākas pēc # minūtēm} one {Sākas pēc # minūtes} other {Sākas pēc # minūtēm}}"
     },
+    "participants": {
+      "invalid_address": "“{address}” nav e-pasta adrese. Izlabojiet vai noņemiet to, lai saglabātu notikumu.",
+      "no_organizer": "Nav adreses, no kuras sūtīt ielūgumus, tāpēc dalībniekus nevar saglabāt. Noņemiet tos, lai saglabātu notikumu."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, zero {reizēm} one {reizes} other {reizēm}}",
       "every_count_days": "{count, plural, zero {Ik pēc # dienām} one {Ik pēc # dienas} other {Ik pēc # dienām}}",

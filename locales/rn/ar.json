@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, zero {يبدأ بعد # ساعة} one {يبدأ بعد ساعة واحدة} two {يبدأ بعد ساعتين} few {يبدأ بعد # ساعات} many {يبدأ بعد # ساعة} other {يبدأ بعد # ساعة}}",
       "starts_in_minutes": "{count, plural, zero {يبدأ بعد # دقيقة} one {يبدأ بعد دقيقة واحدة} two {يبدأ بعد دقيقتين} few {يبدأ بعد # دقائق} many {يبدأ بعد # دقيقة} other {يبدأ بعد # دقيقة}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" ليس عنوان بريد إلكتروني. صحّحه أو أزله لحفظ الحدث.",
+      "no_organizer": "لا يوجد عنوان لإرسال الدعوات منه، لذا لا يمكن حفظ المشاركين. أزلهم لحفظ الحدث."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, zero {مرة} one {مرة} two {مرات} few {مرات} many {مرة} other {مرة}}",
       "every_count_days": "{count, plural, zero {كل # يوم} one {كل يوم} two {كل يومين} few {كل # أيام} many {كل # يومًا} other {كل # يوم}}",

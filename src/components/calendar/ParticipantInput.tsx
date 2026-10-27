@@ -14,6 +14,7 @@ import { useContactsStore } from '../../stores/contacts-store';
 import { useLocaleStore } from '../../stores/locale-store';
 import {
   groupPickAttendees,
+  isParticipantAddress,
   participantQuery,
   participantSuggestions,
   type Attendee,
@@ -131,6 +132,9 @@ const NO_RESULTS: Record<string, AttendeeAvailability> = {};
 
 interface ParticipantInputProps {
   attendees: Attendee[];
+  /** Text typed but not yet added; the editor owns it so Save can add it. */
+  draft: string;
+  onDraftChange: (draft: string) => void;
   onAdd: (attendee: Attendee) => void;
   onRemove: (email: string) => void;
   /** Present while the editor is open; omitted, no availability is asked. */
@@ -138,17 +142,12 @@ interface ParticipantInputProps {
   window?: AvailabilityWindow | null;
 }
 
-function emailRegex(): RegExp {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-}
-
 // Attendee rows only: the organizer participant is added by
 // buildParticipantMap on save (see lib/calendar-participants).
-export function ParticipantInput({ attendees, onAdd, onRemove, availabilityAccount, window = null }: ParticipantInputProps) {
+export function ParticipantInput({ attendees, draft, onDraftChange: setDraft, onAdd, onRemove, availabilityAccount, window = null }: ParticipantInputProps) {
   const c = useColors();
   const styles = React.useMemo(() => makeStyles(c), [c]);
   const t = useLocaleStore((s) => s.t);
-  const [draft, setDraft] = React.useState('');
   const availability = useAttendeeAvailability(attendees, availabilityAccount, window);
   const showAvailability = !!availabilityAccount && !!window && attendees.length > 0 && supportsAvailability();
 
@@ -199,7 +198,7 @@ export function ParticipantInput({ attendees, onAdd, onRemove, availabilityAccou
 
   const addParticipant = (email: string, name?: string) => {
     const trimmed = email.trim();
-    if (!trimmed || !emailRegex().test(trimmed)) return;
+    if (!isParticipantAddress(trimmed)) return;
     if (existingEmails.has(trimmed.toLowerCase())) {
       setDraft('');
       return;
