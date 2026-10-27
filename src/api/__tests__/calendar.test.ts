@@ -329,6 +329,46 @@ describe('calendar operations', () => {
   });
 
   describe('getEvents', () => {
+    // Stalwart 1.0 refuses one /get asking for recurrenceOverrides with
+    // utcStart or utcEnd, so the overrides come from a second /get.
+    it('reads the overrides apart from utcStart/utcEnd and merges them by id', async () => {
+      mockRequest.mockResolvedValue({
+        methodResponses: [
+          ['CalendarEvent/get', { list: [
+            { id: 'ev1', title: 'Weekly', utcStart: '2026-03-02T09:00:00Z', recurrenceRule: { frequency: 'weekly' } },
+            { id: 'ev2', title: 'Once', utcStart: '2026-03-03T09:00:00Z' },
+          ] }, '0'],
+          ['CalendarEvent/get', { list: [
+            { id: 'ev1', recurrenceOverrides: { '2026-03-09T09:00:00': { title: 'Moved' } } },
+            { id: 'ev2', recurrenceOverrides: null },
+          ] }, '0-overrides'],
+        ],
+      });
+
+      const result = await getEvents(['ev1', 'ev2']);
+
+      const calls = mockRequest.mock.calls[0][0];
+      expect(calls).toHaveLength(2);
+      expect(calls[0][1].properties).toContain('utcStart');
+      expect(calls[0][1].properties).not.toContain('recurrenceOverrides');
+      expect(calls[1][1].properties).toEqual(['id', 'recurrenceOverrides']);
+      expect(calls[1][1].ids).toEqual(['ev1', 'ev2']);
+      expect(result[0].recurrenceOverrides).toEqual({ '2026-03-09T09:00:00': { title: 'Moved' } });
+      expect(result[0].utcStart).toBe('2026-03-02T09:00:00Z');
+      expect(result[1].recurrenceOverrides).toBeNull();
+    });
+
+    it('fails the read when the overrides /get fails', async () => {
+      mockRequest.mockResolvedValue({
+        methodResponses: [
+          ['CalendarEvent/get', { list: [{ id: 'ev1' }] }, '0'],
+          ['error', { type: 'serverFail' }, '0-overrides'],
+        ],
+      });
+
+      await expect(getEvents(['ev1'])).rejects.toThrow('serverFail');
+    });
+
     it('should fetch events by id with singular JSCalendar 2.0 recurrence properties', async () => {
       // Stalwart (calcard) names the property `recurrenceRule` (singular,
       // single object) — requesting the RFC 8984 plural form returns no

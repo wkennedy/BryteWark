@@ -1,7 +1,7 @@
 import { jmapClient } from './jmap-client';
 import { opScope, type AccountRef } from './op-scope';
 import { CAPABILITIES } from './types';
-import type { Calendar, CalendarEvent, CalendarRights, ParticipantIdentity } from './types';
+import type { Calendar, CalendarEvent, CalendarRights, JMAPMethodCall, ParticipantIdentity } from './types';
 import { assertSetResult, SchedulingDeniedError } from './jmap-result';
 import { getEffectiveTimeZone } from '../lib/calendar-timezone';
 import { isStaleLoad } from '../lib/network-error';
@@ -120,6 +120,33 @@ const CALENDAR_EVENT_PROPERTIES = [
 // Asked for only on server-expanded ranges: servers that expand recurrences
 // for the app (see supportsSyntheticCalendarIds) know these.
 const EXPANDED_EVENT_PROPERTIES = [...CALENDAR_EVENT_PROPERTIES, 'baseEventId', 'recurrenceIdTimeZone'];
+
+// Stalwart 1.0 refuses a CalendarEvent/get that asks for recurrenceOverrides
+// together with utcStart or utcEnd. Such a read is two /get calls in one
+// request: everything else under `callId`, then only the overrides under
+// `${callId}-overrides`, put back by mergeOverrides.
+function eventGetCalls(args: Record<string, unknown>, callId: string): JMAPMethodCall[] {
+  const properties = args.properties as readonly string[];
+  if (!properties.includes('recurrenceOverrides')
+    || !properties.some((p) => p === 'utcStart' || p === 'utcEnd')) {
+    return [['CalendarEvent/get', args, callId]];
+  }
+  return [
+    ['CalendarEvent/get', { ...args, properties: properties.filter((p) => p !== 'recurrenceOverrides') }, callId],
+    ['CalendarEvent/get', { ...args, properties: ['id', 'recurrenceOverrides'] }, `${callId}-overrides`],
+  ];
+}
+
+// `list` with the overrides read under `${callId}-overrides`, when there was one.
+function mergeOverrides<T extends { id?: string }>(res: any, callId: string, list: T[]): T[] {
+  const index = (res?.methodResponses ?? []).findIndex((r: unknown[]) => r?.[2] === `${callId}-overrides`);
+  if (index < 0) return list;
+  const overrides = new Map<string, unknown>();
+  for (const e of methodResult<{ list?: Array<{ id: string; recurrenceOverrides?: unknown }> }>(res, index).list ?? []) {
+    if ('recurrenceOverrides' in e) overrides.set(e.id, e.recurrenceOverrides);
+  }
+  return list.map((e) => (e.id && overrides.has(e.id) ? { ...e, recurrenceOverrides: overrides.get(e.id) } : e));
+}
 
 // Client-side fields that must never reach CalendarEvent/set.
 const CLIENT_ONLY_EVENT_KEYS = [
@@ -580,7 +607,7 @@ export async function getEvents(
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
     const res = await jmapClient.request(
-      [['CalendarEvent/get', {
+      eventGetCalls({
         accountId: account,
         ids: batch,
         properties: [
@@ -588,11 +615,11 @@ export async function getEvents(
           ...(options?.extraProperties ?? []),
         ],
         ...(timeZone ? { timeZone } : {}),
-      }, '0']],
+      }, '0'),
       USING,
       { gen: at.gen },
     );
-    const list = methodResult<{ list: CalendarEvent[] }>(res).list ?? [];
+    const list = mergeOverrides(res, '0', methodResult<{ list: CalendarEvent[] }>(res).list ?? []);
     all.push(...list.map((e) => normalizeTaskProgress(normalizeRecurrenceProperties(e))));
   }
   return all;
@@ -626,15 +653,15 @@ async function searchEventsIn(
       limit,
       ...(timeZone ? { timeZone } : {}),
     }, '0'],
-    ['CalendarEvent/get', {
+    ...eventGetCalls({
       accountId,
       '#ids': { resultOf: '0', name: 'CalendarEvent/query', path: '/ids' },
       properties: CALENDAR_EVENT_PROPERTIES,
       ...(timeZone ? { timeZone } : {}),
-    }, '1'],
+    }, '1'),
   ], USING, { gen: at.gen });
   methodResult(res, 0);
-  const list = methodResult<{ list?: CalendarEvent[] }>(res, 1).list ?? [];
+  const list = mergeOverrides(res, '1', methodResult<{ list?: CalendarEvent[] }>(res, 1).list ?? []);
   return list.map((e) => normalizeTaskProgress(normalizeRecurrenceProperties(e)));
 }
 
