@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Begint over # uur} other {Begint over # uur}}",
       "starts_in_minutes": "{count, plural, one {Begint over # minuut} other {Begint over # minuten}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" is geen e-mailadres. Corrigeer of verwijder het om de afspraak op te slaan.",
+      "no_organizer": "Er is geen adres om uitnodigingen vanaf te versturen, dus de deelnemers kunnen niet worden opgeslagen. Verwijder ze om de afspraak op te slaan."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {herhaling} other {herhalingen}}",
       "every_count_days": "{count, plural, one {Elke dag} other {Elke # dagen}}",

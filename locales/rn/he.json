@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {מתחיל בעוד שעה} two {מתחיל בעוד שעתיים} other {מתחיל בעוד # שעות}}",
       "starts_in_minutes": "{count, plural, one {מתחיל בעוד דקה} two {מתחיל בעוד שתי דקות} other {מתחיל בעוד # דקות}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" אינה כתובת דוא\"ל. יש לתקן או להסיר אותה כדי לשמור את האירוע.",
+      "no_organizer": "אין כתובת לשליחת ההזמנות ממנה, ולכן לא ניתן לשמור את המשתתפים. יש להסיר אותם כדי לשמור את האירוע."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {מופע} two {מופעים} other {מופעים}}",
       "every_count_days": "{count, plural, one {כל יום} two {כל יומיים} other {כל # ימים}}",

@@ -65,6 +65,7 @@ import {
   organizerAddressForSave,
   collectUserCalendarAddresses,
   participantsLockedFor,
+  attendeesForSave,
   type Attendee,
 } from '../../lib/calendar-participants';
 import { Button } from '..';
@@ -196,6 +197,8 @@ export function EventModal({
   const [calendarId, setCalendarId] = React.useState<string>(fallbackCalendarId);
   // Attendee rows only — the organizer participant is rebuilt on save.
   const [attendees, setAttendees] = React.useState<Attendee[]>([]);
+  // What is typed in the participant field but not added yet.
+  const [participantDraft, setParticipantDraft] = React.useState('');
   const [recurrence, setRecurrence] = React.useState<RecurrenceOption>('none');
   const [customRule, setCustomRule] = React.useState<RecurrenceRule | null>(null);
   const [recurrenceEditorOpen, setRecurrenceEditorOpen] = React.useState(false);
@@ -264,6 +267,7 @@ export function EventModal({
       setEnd(times.end);
       setCalendarId(getPrimaryCalendarId(event) || calendars[0]?.id || '');
       setAttendees(seedAttendees(event, userEmails, organizerAddressForSave(event, identities, userEmails)));
+      setParticipantDraft('');
       const detected = detectRecurrence(event);
       setRecurrence(detected);
       setCustomRule(detected === 'custom' ? event.recurrenceRules?.[0] ?? null : null);
@@ -283,6 +287,7 @@ export function EventModal({
       setEnd(addHours(d, 1));
       setCalendarId(fallbackCalendarId);
       setAttendees([]);
+      setParticipantDraft('');
       setRecurrence('none');
       setCustomRule(null);
       setRecurrenceEditorOpen(false);
@@ -334,6 +339,31 @@ export function EventModal({
 
   const handleSave = async () => {
     if (!title.trim() || !calendarId) return;
+    const organizerEmail = organizerAddressForSave(event, identities, currentUserEmails);
+    // Save pressed straight after typing an address leaves it in the field;
+    // it is a guest all the same, and text that isn't one is never dropped.
+    const guests = participantsLocked ? { attendees, invalid: null } : attendeesForSave(attendees, participantDraft);
+    if (guests.invalid) {
+      RNAlert.alert(
+        t('calendar.notifications.event_error', 'Something went wrong'),
+        t('calendar.participants.invalid_address', '"{address}" is not an email address. Correct or remove it to save the event.', { address: guests.invalid }),
+      );
+      return;
+    }
+    if (guests.attendees !== attendees) {
+      setAttendees(guests.attendees);
+      setParticipantDraft('');
+    }
+    const invitees = guests.attendees;
+    // Without an organizer the server stores no ORGANIZER and sends nothing,
+    // so the guests would be dropped unseen.
+    if (!participantsLocked && invitees.length > 0 && !organizerEmail) {
+      RNAlert.alert(
+        t('calendar.notifications.event_error', 'Something went wrong'),
+        t('calendar.participants.no_organizer', "There is no address to send invitations from, so the participants can't be saved. Remove them to save the event."),
+      );
+      return;
+    }
     setSaving(true);
     try {
       // JSON drops `undefined`, so a cleared field must be sent as an explicit
@@ -363,10 +393,9 @@ export function EventModal({
         locations: clearedOr(buildLocations(location), 'locations'),
         virtualLocations: clearedOr(buildVirtualLocations(videoUrl), 'virtualLocations'),
       };
-      const organizerEmail = organizerAddressForSave(event, identities, currentUserEmails);
       if (participantsLocked) {
         // Not ours to change: leave participants and organizer untouched.
-      } else if (attendees.length > 0 && organizerEmail) {
+      } else if (invitees.length > 0) {
         // A new event has no participants yet, so it would store an empty
         // organizer name; fall back to the contact card / account name.
         const organizerName =
@@ -375,14 +404,14 @@ export function EventModal({
           || '';
         data.participants = buildParticipantMap(
           { name: organizerName, email: organizerEmail },
-          attendees,
+          invitees,
           event?.participants,
         );
         // Stalwart (calcard) derives the iCalendar ORGANIZER property solely from
         // organizerCalendarAddress; without it no ORGANIZER is emitted and iTIP
         // scheduling is silently skipped, so no invites are sent.
         data.organizerCalendarAddress = `mailto:${organizerEmail}`;
-      } else if (attendees.length === 0 && isEdit && had('participants')) {
+      } else if (invitees.length === 0 && isEdit && had('participants')) {
         data.participants = null;
         // Also clear the retired replyTo that older releases wrote.
         if (event?.replyTo) data.replyTo = null;
@@ -399,7 +428,7 @@ export function EventModal({
       // `false` means the save was cancelled (declined to save without
       // invitations): keep the editor open.
       const saved = await onSave(data, calendarId, {
-        sendSchedulingMessages: !participantsLocked && attendees.length > 0 && sendInvitations,
+        sendSchedulingMessages: !participantsLocked && invitees.length > 0 && sendInvitations,
       });
       if (saved !== false) onClose();
     } catch (err) {
@@ -786,6 +815,8 @@ export function EventModal({
             ) : (
               <ParticipantInput
                 attendees={attendees}
+                draft={participantDraft}
+                onDraftChange={setParticipantDraft}
                 availabilityAccount={visible ? availabilityAccount : undefined}
                 window={visible && !allDay && end > start ? { start, end } : allDay && end >= start ? { start, end: new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1) } : null}
                 onAdd={(a) => setAttendees((prev) => [...prev, a])}

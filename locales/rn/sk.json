@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Začína o # hodinu} few {Začína o # hodiny} many {Začína o # hodiny} other {Začína o # hodín}}",
       "starts_in_minutes": "{count, plural, one {Začína o # minútu} few {Začína o # minúty} many {Začína o # minúty} other {Začína o # minút}}"
     },
+    "participants": {
+      "invalid_address": "„{address}“ nie je e-mailová adresa. Opravte ju alebo ju odstráňte, aby ste mohli udalosť uložiť.",
+      "no_organizer": "Nie je k dispozícii adresa, z ktorej by sa odoslali pozvánky, takže účastníkov nemožno uložiť. Odstráňte ich, aby ste mohli udalosť uložiť."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {opakovaní} few {opakovaniach} many {opakovania} other {opakovaniach}}",
       "every_count_days": "{count, plural, one {Každý deň} few {Každé # dni} many {Každých # dňa} other {Každých # dní}}",

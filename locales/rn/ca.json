@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Comença d'aquí a # hora} other {Comença d'aquí a # hores}}",
       "starts_in_minutes": "{count, plural, one {Comença d'aquí a # minut} other {Comença d'aquí a # minuts}}"
     },
+    "participants": {
+      "invalid_address": "«{address}» no és una adreça electrònica. Corregiu-la o suprimiu-la per desar l'esdeveniment.",
+      "no_organizer": "No hi ha cap adreça des de la qual enviar les invitacions, així que no es poden desar els participants. Suprimiu-los per desar l'esdeveniment."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {repetició} other {repeticions}}",
       "every_count_days": "{count, plural, one {Cada dia} other {Cada # dies}}",

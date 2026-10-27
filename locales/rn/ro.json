@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Începe peste # oră} few {Începe peste # ore} other {Începe peste # de ore}}",
       "starts_in_minutes": "{count, plural, one {Începe peste # minut} few {Începe peste # minute} other {Începe peste # de minute}}"
     },
+    "participants": {
+      "invalid_address": "„{address}” nu este o adresă de e-mail. Corectați-o sau eliminați-o pentru a salva evenimentul.",
+      "no_organizer": "Nu există nicio adresă de la care să se trimită invitațiile, așa că participanții nu pot fi salvați. Eliminați-i pentru a salva evenimentul."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {ocurență} few {ocurențe} other {de ocurențe}}",
       "every_count_days": "{count, plural, one {În fiecare zi} few {La fiecare # zile} other {La fiecare # de zile}}",

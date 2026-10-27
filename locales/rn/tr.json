@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {# saat sonra başlıyor} other {# saat sonra başlıyor}}",
       "starts_in_minutes": "{count, plural, one {# dakika sonra başlıyor} other {# dakika sonra başlıyor}}"
     },
+    "participants": {
+      "invalid_address": "\"{address}\" bir e-posta adresi değil. Etkinliği kaydetmek için düzeltin veya kaldırın.",
+      "no_organizer": "Davetlerin gönderileceği bir adres yok, bu nedenle katılımcılar kaydedilemiyor. Etkinliği kaydetmek için onları kaldırın."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {tekrar} other {tekrar}}",
       "every_count_days": "{count, plural, one {Her gün} other {Her # günde bir}}",

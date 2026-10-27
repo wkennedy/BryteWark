@@ -80,6 +80,10 @@
       "starts_in_hours": "{count, plural, one {Starter om # time} other {Starter om # timer}}",
       "starts_in_minutes": "{count, plural, one {Starter om # minutt} other {Starter om # minutter}}"
     },
+    "participants": {
+      "invalid_address": "«{address}» er ikke en e-postadresse. Rett eller fjern den for å lagre hendelsen.",
+      "no_organizer": "Det finnes ingen adresse å sende invitasjoner fra, så deltakerne kan ikke lagres. Fjern dem for å lagre hendelsen."
+    },
     "recurrence": {
       "editor_occurrences_count": "{count, plural, one {forekomst} other {forekomster}}",
       "every_count_days": "{count, plural, one {Hver dag} other {Hver #. dag}}",
