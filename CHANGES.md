@@ -11,6 +11,7 @@ Branch `fix/stalwart-1.0`. Stalwart 1.0.0 (26 October 2026) changes OAuth and mo
 ### Fixes
 - Signing in straight to a Stalwart 1.0 server (no webmail) works again. The app registers itself as an OAuth client and asks for the mail, contacts, calendars and files scopes; 1.0 refuses the fixed client id, and a token without those scopes reaches nothing (d5fb656).
 - Files work on Stalwart 1.0: uploads, new folders and copies are no longer refused, files keep their type, symbolic links are left out of the list, and "Sharing & access" is offered on folders only, the only nodes 1.0 shares (2ee637f).
+- The calendar, its widget and event search load again on Stalwart 1.0, which refuses to send an event's recurrence overrides in the same read as its start and end instants; the overrides now come from a second read in the same request (61c0c52).
 - When Stalwart 1.0 declines to expand a calendar range, the app expands it on the device instead of failing to load the calendar (e9cd8d6).
 
 ## Event participants on save (#26)
