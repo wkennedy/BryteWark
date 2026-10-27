@@ -47,7 +47,7 @@ function loadDocumentPicker(): DocumentPickerModule | null {
 
 import {
   copyFileNode, createFolder, deleteFileNodes, getAllFileNodesAcrossAccounts,
-  getFileNodeDownloadUrl, getMaxSizeUpload, isCrossAccountId, isFolder, moveFileNode,
+  canShareFileNode, getFileNodeDownloadUrl, getMaxSizeUpload, isCrossAccountId, isFolder, moveFileNode,
   getFileNameRules, renameFileNode, supportsFiles, supportsSharing, uploadFileNode,
 } from '../api/files';
 import { jmapClient } from '../api/jmap-client';
@@ -1303,8 +1303,10 @@ function ActionsSheet({
   const isDir = isFolder(target);
   // Owned nodes report full rights (or no myRights at all); shared-with-me
   // nodes are managed by their owner, and write ops would have to route to
-  // the owner's account — so they only get preview/download here.
-  const canShare = sharingEnabled && !target.isShared && (target.myRights?.mayShare ?? true);
+  // the owner's account — so they only get preview/download here. From
+  // Stalwart 1.0 a file is shared only through its folder.
+  const canShare = sharingEnabled && !target.isShared && canShareFileNode(target)
+    && (target.myRights?.mayShare ?? true);
   const modified = modifiedOf(target);
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>

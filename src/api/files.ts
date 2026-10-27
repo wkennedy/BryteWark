@@ -24,10 +24,23 @@ export function isFolder(node: Pick<FileNode, 'blobId'>): boolean {
 // The modification timestamp is `modified` (RFC draft-ietf-jmap-filenode);
 // asking for a property the server doesn't know silently yields undefined,
 // which is how "updated" left every date blank (#700).
+// Stalwart 1.0 (filenode-18) names the content type `mediaType` and the kind
+// `@type`; asking for `type` there leaves every file without one.
 const FILE_NODE_PROPERTIES = [
   'id', 'parentId', 'name', 'type', 'blobId', 'size', 'created', 'modified',
   'shareWith', 'myRights',
 ];
+const NODE_TYPE_PROPERTIES = [
+  'id', 'parentId', 'name', '@type', 'mediaType', 'blobId', 'size', 'created', 'modified',
+  'shareWith', 'myRights',
+];
+
+function fileNodeProperties(accountId: string): string[] {
+  return hasNodeTypes(accountId) ? NODE_TYPE_PROPERTIES : FILE_NODE_PROPERTIES;
+}
+
+// A FileNode as filenode-18 sends it.
+type WireFileNode = FileNode & { '@type'?: string; mediaType?: string };
 
 type LegacyFileNodeRights = { mayRead?: boolean; mayWrite?: boolean; mayShare?: boolean };
 
@@ -37,6 +50,21 @@ type LegacyFileNodeRights = { mayRead?: boolean; mayWrite?: boolean; mayShare?: 
 export function isLegacyFileNodeServer(accountId: string): boolean {
   const cap = jmapClient.getAccountCapability(CAPABILITIES.FILES, accountId);
   return !!cap && !('forbiddenNameChars' in (cap as Record<string, unknown>));
+}
+
+// Stalwart 1.0 implements filenode-18: a node's kind is `@type` (File,
+// Directory, SymLink), required on create; its content type is `mediaType`;
+// and only a Directory carries `shareWith`/`myRights`. Its capability names
+// the kinds in `supportedNodeTypes`, which earlier drafts lack.
+export function hasNodeTypes(accountId: string): boolean {
+  const cap = jmapClient.getAccountCapability(CAPABILITIES.FILES, accountId);
+  return !!cap && 'supportedNodeTypes' in (cap as Record<string, unknown>);
+}
+
+// Whether `node` can be shared on its own: any node before Stalwart 1.0, only
+// a folder from then on (a file is shared through its folder).
+export function canShareFileNode(node: Pick<FileNode, 'blobId' | 'accountId'>): boolean {
+  return isFolder(node) || !hasNodeTypes(node.accountId ?? filesAccountId());
 }
 
 // The server's published naming rules, or null when it publishes none.
@@ -68,8 +96,13 @@ export function fromLegacyRights(
   };
 }
 
-// A FileNode as the server sent it: name decoded, rights in the finer form.
-function fromWireFileNode(node: FileNode): FileNode {
+// A FileNode as the server sent it: name decoded, `mediaType` read as the
+// type, rights in the finer form.
+function fromWireFileNode(wire: WireFileNode): FileNode {
+  const { '@type': _kind, mediaType, ...rest } = wire;
+  const node: FileNode = mediaType === undefined && _kind === undefined
+    ? wire
+    : { ...rest, type: mediaType ?? rest.type ?? '' };
   const name = decodeFileNodeName(node.name);
   if (!node.myRights && !node.shareWith) return name === node.name ? node : { ...node, name };
   return {
@@ -271,11 +304,17 @@ const FILE_NODE_MAX_IDS = 200_000;
 // come from paging FileNode/query and are fetched in /get-sized batches, and
 // parents that are still unknown afterwards (folders, on older Stalwart) are
 // fetched by id.
-async function fetchAllFileNodes(accountId: string, gen?: number): Promise<FileNode[]> {
+async function fetchAllFileNodes(accountId: string, gen?: number): Promise<WireFileNode[]> {
+  // A symbolic link (filenode-18) is neither a file nor a folder here.
+  return (await fetchAllWireNodes(accountId, gen)).filter((node) => node['@type'] !== 'SymLink');
+}
+
+async function fetchAllWireNodes(accountId: string, gen?: number): Promise<WireFileNode[]> {
   const using = fileUsing();
+  const properties = fileNodeProperties(accountId);
   const opts = gen === undefined ? undefined : { gen };
   const res = await jmapClient.request(
-    [['FileNode/get', { accountId, ids: null, properties: FILE_NODE_PROPERTIES }, '0']],
+    [['FileNode/get', { accountId, ids: null, properties }, '0']],
     using,
     opts,
   );
@@ -283,7 +322,7 @@ async function fetchAllFileNodes(accountId: string, gen?: number): Promise<FileN
   if (!result || result[0] === 'error') {
     throw new Error(result?.[1]?.description || 'FileNode list failed');
   }
-  const firstPage = (result[1].list ?? []) as FileNode[];
+  const firstPage = (result[1].list ?? []) as WireFileNode[];
   const maxObjects = jmapClient.getMaxObjectsInGet();
   if (firstPage.length < maxObjects) return firstPage;
 
@@ -292,14 +331,14 @@ async function fetchAllFileNodes(accountId: string, gen?: number): Promise<FileN
   // round trips rather than one per batch.
   const fetchByIds = async (ids: string[]) => {
     const calls = batched(ids, maxObjects).map((batch, i): JMAPMethodCall =>
-      ['FileNode/get', { accountId, ids: batch, properties: FILE_NODE_PROPERTIES }, String(i)]);
+      ['FileNode/get', { accountId, ids: batch, properties }, String(i)]);
     for (const group of batched(calls, jmapClient.getMaxCallsInRequest())) {
       const batchRes = await jmapClient.request(group, using, opts);
       for (const r of batchRes.methodResponses ?? []) {
         if (r[0] !== 'FileNode/get') {
           throw new Error(r[1]?.description || 'FileNode/get failed');
         }
-        for (const node of (r[1].list ?? []) as FileNode[]) known.set(node.id, node);
+        for (const node of (r[1].list ?? []) as WireFileNode[]) known.set(node.id, node);
       }
     }
   };
@@ -492,6 +531,18 @@ async function createFileNode(
   return afterWrite(createFileNodeOnce(accountId, props));
 }
 
+// The create in the server's draft: filenode-18 needs `@type` and calls the
+// type `mediaType`, and refuses a property it doesn't know.
+function toWireCreate(accountId: string, props: Record<string, unknown>): Record<string, unknown> {
+  if (!hasNodeTypes(accountId)) return props;
+  const { type, ...rest } = props;
+  return {
+    '@type': props.blobId ? 'File' : 'Directory',
+    ...rest,
+    ...(type !== undefined ? { mediaType: type } : {}),
+  };
+}
+
 async function createFileNodeOnce(
   accountId: string,
   props: Record<string, unknown>,
@@ -501,13 +552,13 @@ async function createFileNodeOnce(
   for (let attempt = 1; ; attempt++) {
     const name = attempt === 1 ? baseName : numberedFileName(baseName, attempt);
     const res = await jmapClient.request(
-      [['FileNode/set', { accountId, onExists: 'rename', create: { [key]: { ...props, name } } }, '0']],
+      [['FileNode/set', { accountId, onExists: 'rename', create: { [key]: toWireCreate(accountId, { ...props, name }) } }, '0']],
       fileUsing(),
     );
     const result = requireMethodResult(res, '0', 'FileNode/set');
     const created = result.created?.[key];
     // The server's name wins: after a rename it differs from the one sent.
-    if (created) return fromWireFileNode({ ...props, name, ...created } as FileNode);
+    if (created) return fromWireFileNode({ ...props, name, ...created } as WireFileNode);
     const err = result.notCreated?.[key];
     if (attempt < 20 && /already exists/i.test(err?.description ?? '')) continue;
     throw new Error(err?.description || 'Create failed');

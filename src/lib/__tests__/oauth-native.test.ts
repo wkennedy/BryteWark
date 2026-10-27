@@ -94,3 +94,100 @@ describe('loginWithPkce token response', () => {
     expect(result.idToken).toBeUndefined();
   });
 });
+
+// Stalwart 1.0 enforces the OAuth profile for open public clients: an
+// unregistered client id is refused, and a token reaches only the services its
+// scopes name. Such a server advertises the service scopes; the app registers
+// itself dynamically there and asks for them.
+describe('loginWithPkce on a server with service scopes', () => {
+  const SERVICE_SCOPES = [
+    'urn:ietf:params:oauth:scope:mail',
+    'urn:ietf:params:oauth:scope:contacts',
+    'urn:ietf:params:oauth:scope:calendars',
+    'urn:ietf:params:oauth:scope:files',
+  ];
+  const stalwart: OAuthMetadata = {
+    ...metadata,
+    registration_endpoint: 'https://mail.example.com/auth/register',
+    scopes_supported: [...SERVICE_SCOPES, 'openid', 'offline_access'],
+  };
+  const fetchMock = secureFetch as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registers(clientId = 'swc1.abc') {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({ client_id: clientId, client_id_issued_at: 1 }),
+    });
+  }
+
+  it('registers a public client and signs in with its id and the service scopes', async () => {
+    registers();
+    const { params, redirectUri } = await openedSession(stalwart);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://mail.example.com/auth/register');
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.redirect_uris).toEqual(['org.bulwarkmail.mobile:/oauth/callback']);
+    expect(body.token_endpoint_auth_method).toBe('none');
+    expect(body.grant_types).toEqual(['authorization_code', 'refresh_token']);
+    expect(body.scope.split(' ')).toEqual(expect.arrayContaining(SERVICE_SCOPES));
+
+    expect(params.get('client_id')).toBe('swc1.abc');
+    expect(params.get('redirect_uri')).toBe('org.bulwarkmail.mobile:/oauth/callback');
+    expect(redirectUri).toBe('org.bulwarkmail.mobile:/oauth/callback');
+    expect(params.get('scope')!.split(' ').sort()).toEqual([...SERVICE_SCOPES, 'offline_access', 'openid'].sort());
+  });
+
+  it('asks only for the service scopes the server offers', async () => {
+    registers();
+    const noFiles = { ...stalwart, scopes_supported: stalwart.scopes_supported!.filter((s) => !s.endsWith(':files')) };
+    const { params } = await openedSession(noFiles);
+    expect(params.get('scope')).not.toContain('files');
+  });
+
+  it('keeps the registered client id in the token bundle, for refresh and revocation', async () => {
+    registers('swc1.kept');
+    mockOpenAuthSession.mockImplementationOnce(async (authUrl: string) => {
+      const state = new URL(authUrl).searchParams.get('state');
+      return { type: 'success', url: `org.bulwarkmail.mobile:/oauth/callback?code=c0de&state=${state}` };
+    });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'at', refresh_token: 'rt' }) });
+
+    const result = await loginWithPkce('https://mail.example.com', stalwart);
+
+    expect(result.clientId).toBe('swc1.kept');
+    const tokenBody = new URLSearchParams((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(tokenBody.get('client_id')).toBe('swc1.kept');
+    expect(tokenBody.get('redirect_uri')).toBe('org.bulwarkmail.mobile:/oauth/callback');
+  });
+
+  it('fails the sign-in when the registration is refused', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => '{"error":"invalid_redirect_uri"}',
+    });
+    await expect(loginWithPkce('https://mail.example.com', stalwart)).rejects.toThrow(/registration failed: 400/i);
+    expect(mockOpenAuthSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a registration endpoint on another host over plain http', async () => {
+    const foreign = { ...stalwart, registration_endpoint: 'http://evil.example.net/register' };
+    await expect(loginWithPkce('https://mail.example.com', foreign)).rejects.toThrow(/not trusted/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the fixed client id where the server offers no service scopes (Keycloak, Stalwart 0.16)', async () => {
+    const keycloak = { ...metadata, registration_endpoint: 'https://mail.example.com/register', scopes_supported: ['openid', 'email', 'profile'] };
+    const { params, redirectUri } = await openedSession(keycloak);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(params.get('client_id')).toBe('bulwark-webmail');
+    expect(params.get('scope')).toBe('openid email profile');
+    expect(redirectUri).toBe('bulwarkmobile://auth/callback');
+  });
+});

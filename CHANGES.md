@@ -1,10 +1,20 @@
 # Changes since 4 October 2026
 
-The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups (#25), merged afterwards, and a fix for event participants on `fix/event-participants-save`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
+The webmail parity work from 4 to 8 October 2026: 349 commits (72 features, 237 fixes, and docs, tests and chores) in eleven merged pull requests, plus phases 6e and 7, merged afterwards, and the first follow-up cleanup (#17, 35 commits: 34 fixes and a plan), merged afterwards, and a second follow-up cleanup (#18, 20 commits: 18 fixes, a test and a plan), merged afterwards, and a third follow-up cleanup (#19), device check pass 2 (#20), a shared-account mail hotfix (#21), merged afterwards, and shared-account sending (#22), merged afterwards, and its follow-ups (#23), and smaller follow-ups for language, the week view, icons and font size (#24), merged afterwards, and their minor follow-ups (#25), merged afterwards, and a fix for event participants (#26), merged afterwards, and Stalwart 1.0 support on `fix/stalwart-1.0`, which is not merged yet. At the start, 380 of the 489 tracked webmail parity items were done and 109 were open ([roadmap](docs/superpowers/plans/2026-10-04-webmail-parity-roadmap.md)). Now 487 of 494 are done and 7 are open ([PARITY_CHECKLIST.md](PARITY_CHECKLIST.md)); five items were added during the work.
 
 The phases are listed newest first. Short hashes are in parentheses. What each phase left open is in the roadmap's follow-up sections.
 
-## Event participants on save (unmerged)
+## Stalwart 1.0 (unmerged)
+
+Branch `fix/stalwart-1.0`. Stalwart 1.0.0 (26 October 2026) changes OAuth and moves to newer File Storage and Calendars drafts. Servers on 0.16 keep working as before.
+
+### Fixes
+- Signing in straight to a Stalwart 1.0 server (no webmail) works again. The app registers itself as an OAuth client and asks for the mail, contacts, calendars and files scopes; 1.0 refuses the fixed client id, and a token without those scopes reaches nothing (d5fb656).
+- Files work on Stalwart 1.0: uploads, new folders and copies are no longer refused, files keep their type, symbolic links are left out of the list, and "Sharing & access" is offered on folders only, the only nodes 1.0 shares (2ee637f).
+- The calendar, its widget and event search load again on Stalwart 1.0, which refuses to send an event's recurrence overrides in the same read as its start and end instants; the overrides now come from a second read in the same request (61c0c52).
+- When Stalwart 1.0 declines to expand a calendar range, the app expands it on the device instead of failing to load the calendar (e9cd8d6).
+
+## Event participants on save (#26)
 
 Branch `fix/event-participants-save`.
 
